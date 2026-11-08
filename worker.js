@@ -72,8 +72,9 @@ async function callback(url, env) {
     const payload = b64(JSON.stringify({ st: url.searchParams.get("state") || "", acc, until: (s.access && s.access.valid_until) || "", sid: s.session_id || "" }));
     const link = env.APP_URL ? env.APP_URL.replace(/#.*$/, "") + "#bank=" + encodeURIComponent(payload) : "";
     return page("Gekoppeld", `<h2>Gekoppeld ✓</h2><p>${acc.length} rekening(en) gekoppeld.</p>
-${link ? `<a class="b" href="${esc(link)}">Open Huis-app</a>` : ""}
-<p style="margin-top:20px">Gebruik je de Huis-app op Android? Kopieer dan deze bankcode en plak hem in de app bij Budget → Bankkoppeling.</p>
+${link ? `<a class="b" href="${esc(link)}">Open Huis-app (browser)</a>` : ""}
+<a class="b" href="huis://open?bank=${encodeURIComponent(payload)}">Open in de Android-app</a>
+<p style="margin-top:20px">Lukt de knop niet? Kopieer dan deze bankcode en plak hem in de app bij Budget → Bankkoppeling.</p>
 <textarea id="c" readonly>${esc(payload)}</textarea><br><button onclick="c.select();navigator.clipboard&&navigator.clipboard.writeText(c.value)">Kopieer bankcode</button>`);
   } catch (e) {
     return page("Koppelen mislukt", `<h2>Koppelen mislukt</h2><p>${esc(e.message)}</p>`);

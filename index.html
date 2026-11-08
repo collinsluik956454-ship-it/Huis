@@ -161,6 +161,9 @@ var CATS=["Vaste lasten","Boodschappen","Kind","Auto & vervoer","Overig"];
 var bsub="joint", imp=null;
 // ---- bankkoppeling (via bankbrug)
 var BANKNAME={abn:"ABN AMRO",ing:"ING"};
+var CAP=window.Capacitor, NATIVE=!!(CAP&&CAP.isNativePlatform&&CAP.isNativePlatform());
+function openExternal(u){if(NATIVE&&CAP.Plugins&&CAP.Plugins.Browser){CAP.Plugins.Browser.open({url:u})}else location.href=u}
+if(NATIVE&&CAP.Plugins&&CAP.Plugins.App){CAP.Plugins.App.addListener("appUrlOpen",function(ev){var m=String((ev&&ev.url)||"").match(/[?&#]bank=([^&#]+)/);if(m){tab="budget";addLinkFromCode(decodeURIComponent(m[1]));render(true)}})}
 function links(){return (S.bank&&S.bank.links)||[]}
 function bfetchJSON(path,opt){
   opt=opt||{};opt.headers={Authorization:"Bearer "+cfg.bankToken,"Content-Type":"application/json"};
@@ -388,7 +391,7 @@ document.addEventListener("submit",function(e){
   if(k==="shop"){S.shop.push({id:uid(),text:d.get("text"),done:false});save("shop")}
   if(k==="bud"){S.budget.push({id:uid(),text:d.get("text"),amount:parseFloat(d.get("amount"))||0,who:d.get("who")||bsub,scope:bsub,cat:d.get("cat"),date:month===today().slice(0,7)?today():month+"-01"});save("budget")}
   if(k==="bcfg"){cfg.bankUrl=(d.get("bankUrl")||"").trim().replace(/\/+$/,"");cfg.bankToken=(d.get("bankToken")||"").trim();ls("huis-cfg",cfg);alert2("Opgeslagen");render(true);return}
-  if(k==="blink"){alert2("Bank openen…");bfetchJSON("/auth",{method:"POST",body:JSON.stringify({bank:d.get("bank"),scope:d.get("scope")})}).then(function(j){location.href=j.url}).catch(function(x){alert2("Koppelen mislukt: "+x.message)});return}
+  if(k==="blink"){alert2("Bank openen…");bfetchJSON("/auth",{method:"POST",body:JSON.stringify({bank:d.get("bank"),scope:d.get("scope")})}).then(function(j){openExternal(j.url)}).catch(function(x){alert2("Koppelen mislukt: "+x.message)});return}
   if(k==="cfg"){cfg=Object.assign({},cfg,{url:(d.get("url")||"").trim(),code:(d.get("code")||"").trim()});ls("huis-cfg",cfg);meta={};ls("huis-at",meta);location.reload();return}
   if(k==="maint"){S.maint.push({id:uid(),name:d.get("text"),every:parseInt(d.get("every"))||1,unit:d.get("unit")||"m",last:d.get("last")||"",note:"",cat:d.get("cat")||"huis"});save("maint")}
   if(k==="pool"){S.pool.push({id:uid(),date:d.get("date"),ph:d.get("ph"),cl:d.get("cl"),temp:d.get("temp"),by:me});save("pool")}
