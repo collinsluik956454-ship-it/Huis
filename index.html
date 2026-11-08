@@ -267,6 +267,14 @@ var bsub="joint", imp=null;
 // ---- bankkoppeling (via bankbrug)
 var BANKNAME={abn:"ABN AMRO",ing:"ING"};
 var CAP=window.Capacitor, NATIVE=!!(CAP&&CAP.isNativePlatform&&CAP.isNativePlatform());
+var pcal=null, pcalErr="", pcalTried=false;
+function calPlug(){return NATIVE&&CAP.Plugins&&CAP.Plugins.CapacitorCalendar}
+function loadPcal(ask){
+  var P=calPlug();if(!P)return;
+  function go(){var f=new Date();f.setHours(0,0,0,0);return P.listEventsInRange({startDate:f.getTime(),endDate:f.getTime()+42*864e5}).then(function(r){pcal=(r.result||[]).filter(function(e){return e.startDate}).sort(function(a,b){return a.startDate-b.startDate});pcalErr="";ls("huis-pcal",1);render(true)})}
+  var pr=ask?P.requestReadOnlyCalendarAccess().then(function(r){if(r.result!=="granted")throw new Error("Geen toegang tot je agenda. Zet die aan bij Instellingen van je telefoon → Apps → Huis → Rechten → Agenda.")}):Promise.resolve();
+  pr.then(go).catch(function(e){pcalErr=(e&&e.message)||"Agenda lezen mislukt";if(!ask)ls("huis-pcal",0);render(true)});
+}
 function openExternal(u){if(NATIVE&&CAP.Plugins&&CAP.Plugins.Browser){CAP.Plugins.Browser.open({url:u})}else location.href=u}
 if(NATIVE&&CAP.Plugins&&CAP.Plugins.App){CAP.Plugins.App.addListener("appUrlOpen",function(ev){var m=String((ev&&ev.url)||"").match(/[?&#]bank=([^&#]+)/);if(m){tab="budget";addLinkFromCode(decodeURIComponent(m[1]));render(true)}})}
 function links(){return (S.bank&&S.bank.links)||[]}
@@ -411,8 +419,23 @@ V.pool=function(){
   if(!S.maint.some(function(m){return m.cat==="zwembad"}))h+='<button class="btn ghost" data-a="poolpre" style="margin-bottom:8px">Standaardtaken toevoegen</button>';
   return h+mlist("zwembad","Nog geen zwembadtaken.");
 };
+function overview(){
+  var days={}, t0=today(), lim=addDays(t0,42);
+  S.agenda.forEach(function(e){if(e.date>=t0&&e.date<=lim)(days[e.date]=days[e.date]||[]).push({t:e.time||"",k:e.time?e.time:"0",x:e.text,s:"Huis"})});
+  (pcal||[]).forEach(function(e){var d=iso(new Date(e.startDate));if(d<t0||d>lim)return;var tm=e.isAllDay?"":new Date(e.startDate).toLocaleTimeString("nl-NL",{hour:"2-digit",minute:"2-digit"});(days[d]=days[d]||[]).push({t:tm,k:tm||"0",x:e.title||"(geen titel)",s:"Agenda"})});
+  var keys=Object.keys(days).sort(), h='<div class="card"><h2>Overzicht komende 6 weken</h2>';
+  if(!calPlug())h+='<p class="s" style="font-size:12px;color:var(--mut);margin:0 0 8px">Je telefoonagenda lezen werkt alleen in de Android-app.</p>';
+  else if(!pcal)h+='<p style="font-size:14px;margin:0 0 8px">Laat de app je telefoonagenda lezen, dan zie je hier alles bij elkaar. De afspraken blijven alleen op dit toestel en worden niet met Charlotte gedeeld.</p><button class="btn" data-a="pcal">Agenda koppelen</button>';
+  if(pcalErr)h+='<p class="over" style="font-size:13px">'+esc(pcalErr)+'</p>';
+  if(keys.length){h+=keys.map(function(d){var n=daysTo(d);return '<div style="margin-top:10px"><div class="s" style="font-weight:600;font-size:13px;color:var(--mut);text-transform:capitalize">'+new Date(d+"T12:00:00").toLocaleDateString("nl-NL",{weekday:"long",day:"numeric",month:"long"})+(n===0?" · vandaag":n===1?" · morgen":"")+'</div>'+days[d].sort(function(a,b){return a.k<b.k?-1:1}).map(function(i){return '<div class="row"><div class="t"><b>'+esc(i.x)+'</b><span class="tag">'+i.s+'</span><div class="s">'+(i.t||"hele dag")+'</div></div></div>'}).join("")+'</div>'}).join("")}
+  else if(calPlug()&&pcal)h+='<div class="empty">Niets gepland.</div>';
+  else if(!calPlug())h+='<div class="empty">Alleen de afspraken uit de Huis-app staan hier.</div>';
+  return h+'</div>';
+}
 V.agenda=function(){
   var h=back()+'<form class="add" data-f="agenda"><input type="text" name="text" placeholder="Afspraak…" required><input type="date" name="date" value="'+today()+'" required><input type="time" name="time"><select name="who">'+userOpts(["Samen"],"Samen")+'</select><button class="btn">+</button></form>';
+  if(calPlug()&&ls("huis-pcal")&&!pcalTried){pcalTried=true;loadPcal(false)}
+  h+=overview();
   var all=S.agenda.slice().sort(function(a,b){return (a.date+(a.time||""))<(b.date+(b.time||""))?-1:1});
   var up=all.filter(function(e){return daysTo(e.date)>=0}), past=all.length-up.length;
   h+='<div class="card"><h2>Komende afspraken</h2>'+(up.length?up.map(function(e){var d=daysTo(e.date);return '<div class="row"><div class="t"><b>'+esc(e.text)+'</b><span class="tag">'+esc(e.who)+'</span><div class="s">'+new Date(e.date+"T12:00:00").toLocaleDateString("nl-NL",{weekday:"short",day:"numeric",month:"short"})+(e.time?" · "+esc(e.time):"")+(d===0?" · vandaag":d===1?" · morgen":"")+'</div></div><button class="x" data-a="acal" data-id="'+e.id+'" title="Zet in je agenda" style="color:var(--acc)">'+ic("cal",18)+'</button><button class="x" data-a="adel" data-id="'+e.id+'">×</button></div>'}).join(""):'<div class="empty">Geen afspraken gepland.</div>')+'</div>';
@@ -508,6 +531,7 @@ document.addEventListener("click",function(e){
     if(ev.time){var hm=ev.time.replace(":",""),eh=parseInt(ev.time.slice(0,2),10)+1,em=ev.time.slice(3,5);dts=dd+"T"+hm+"00/"+(eh<24?dd+"T"+(eh<10?"0":"")+eh+em+"00":dd+"T235900")}
     else dts=dd+"/"+addDays(ev.date,1).replace(/-/g,"");
     openExternal("https://calendar.google.com/calendar/render?action=TEMPLATE&text="+encodeURIComponent(ev.text)+"&dates="+dts+"&ctz=Europe%2FAmsterdam&details="+encodeURIComponent("Huis-app ("+ev.who+")"))}}
+  else if(a==="pcal"){pcalErr="";loadPcal(true)}
   else if(a==="adel"){S.agenda=S.agenda.filter(function(x){return x.id!==id});save("agenda")}
   else if(a==="aclear"){S.agenda=S.agenda.filter(function(x){return daysTo(x.date)>=0});save("agenda")}
   else if(a==="ddel"){S.docs=S.docs.filter(function(x){return x.id!==id});save("docs")}

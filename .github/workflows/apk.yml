@@ -40,7 +40,7 @@ jobs:
       - name: Android-project maken
         run: |
           npm init -y
-          npm install @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6 @capacitor/app@6 @capacitor/browser@6
+          npm install @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6 @capacitor/app@6 @capacitor/browser@6 @ebarooni/capacitor-calendar@6.7.2
           npx cap init "Huis" nl.collin.huis --web-dir www
           node -e "const f='capacitor.config.json';const c=JSON.parse(require('fs').readFileSync(f,'utf8'));c.server={url:'https://collinsluik956454-ship-it.github.io/Huis/',cleartext:false};require('fs').writeFileSync(f,JSON.stringify(c,null,2));console.log(c)"
           npx cap add android
@@ -59,6 +59,8 @@ jobs:
               </intent-filter>
           '''
           assert '</activity>' in s, 'activity niet gevonden'
+          if 'READ_CALENDAR' not in s:
+              s=s.replace('<application','<uses-permission android:name="android.permission.READ_CALENDAR" />\n    <application',1)
           s=s.replace('</activity>', f+'</activity>',1)
           open(p,'w',encoding='utf-8').write(s)
           print('manifest aangepast')
