@@ -44,3 +44,18 @@ Kies daarna **Deploy**.
 - Door nieuw ophalen ontstaan geen dubbele regels.
 - Gebruik de koppeling alleen voor privérekeningen. Enable Banking staat dit gratis alleen toe voor persoonlijk gebruik.
 - Als er een foutmelding komt, stuur die naar Claude. De naam van de bank kan bij Enable Banking afwijken en is dan makkelijk aan te passen.
+
+---
+
+## Inloggen met e-mail (Firebase Authentication)
+
+1. Firebase-console → jouw project → **Authentication** → *Aan de slag* → tabblad *Aanmeldmethode* → zet **E-mail/wachtwoord** aan.
+2. Tabblad *Gebruikers* → **Gebruiker toevoegen**: maak één account voor Collin en één voor Charlotte (e-mail + wachtwoord).
+3. Tabblad *Instellingen* → *Gebruikersacties* → zet **Aanmaken (aanmelden)** uit. Dan kan niemand anders zichzelf een account geven.
+4. **Realtime Database** → tabblad *Regels* → plak dit en publiceer:
+
+   ```
+   { "rules": { "huis": { ".read": "auth != null", ".write": "auth != null" } } }
+   ```
+5. **Projectinstellingen** (tandwiel) → *Algemeen* → kopieer de **Web API-sleutel**.
+6. In de app: Meer → Delen & back-up → plak de sleutel in het veld *Firebase Web API-sleutel* → Opslaan. Stuur daarna de nieuwe deellink naar Charlotte; zij logt in met haar eigen e-mailadres.
