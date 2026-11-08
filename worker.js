@@ -27,7 +27,7 @@ function signingKey(env) {
 
 async function makeJwt(env) {
   const iat = Math.floor(Date.now() / 1000);
-  const head = enc(JSON.stringify({ typ: "JWT", alg: "RS256", kid: env.EB_APP_ID }));
+  const head = enc(JSON.stringify({ typ: "JWT", alg: "RS256", kid: String(env.EB_APP_ID || "").trim() }));
   const pay = enc(JSON.stringify({ iss: "enablebanking.com", aud: "api.enablebanking.com", iat, exp: iat + 3600 }));
   const sig = await crypto.subtle.sign("RSASSA-PKCS1-v1_5", await signingKey(env), new TextEncoder().encode(head + "." + pay));
   return head + "." + pay + "." + b64u(sig);
@@ -92,7 +92,12 @@ export default {
         return json({ error: "Niet toegestaan (controleer het wachtwoord)" }, 401);
 
       if (url.pathname === "/health") {
-        const a = await eb(env, "/application");
+        let a;
+        try { a = await eb(env, "/application"); }
+        catch (e) {
+          const id = String(env.EB_APP_ID || "").trim();
+          return json({ error: e.message + " | EB_APP_ID: " + (id ? "begint met " + id.slice(0, 8) + ", eindigt op " + id.slice(-4) + ", lengte " + id.length + " (hoort 36 te zijn)" : "NIET INGESTELD") + " | EB_KEY: " + (env.EB_KEY ? "ingesteld, lengte " + String(env.EB_KEY).length : "NIET INGESTELD") }, 502);
+        }
         return json({ ok: true, app: a.name || a.app_id || "ok" });
       }
 
