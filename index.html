@@ -415,7 +415,7 @@ V.agenda=function(){
   var h=back()+'<form class="add" data-f="agenda"><input type="text" name="text" placeholder="Afspraak…" required><input type="date" name="date" value="'+today()+'" required><input type="time" name="time"><select name="who">'+userOpts(["Samen"],"Samen")+'</select><button class="btn">+</button></form>';
   var all=S.agenda.slice().sort(function(a,b){return (a.date+(a.time||""))<(b.date+(b.time||""))?-1:1});
   var up=all.filter(function(e){return daysTo(e.date)>=0}), past=all.length-up.length;
-  h+='<div class="card"><h2>Komende afspraken</h2>'+(up.length?up.map(function(e){var d=daysTo(e.date);return '<div class="row"><div class="t"><b>'+esc(e.text)+'</b><span class="tag">'+esc(e.who)+'</span><div class="s">'+new Date(e.date).toLocaleDateString("nl-NL",{weekday:"short",day:"numeric",month:"short"})+(e.time?" · "+esc(e.time):"")+(d===0?" · vandaag":d===1?" · morgen":"")+'</div></div><button class="x" data-a="adel" data-id="'+e.id+'">×</button></div>'}).join(""):'<div class="empty">Geen afspraken gepland.</div>')+'</div>';
+  h+='<div class="card"><h2>Komende afspraken</h2>'+(up.length?up.map(function(e){var d=daysTo(e.date);return '<div class="row"><div class="t"><b>'+esc(e.text)+'</b><span class="tag">'+esc(e.who)+'</span><div class="s">'+new Date(e.date+"T12:00:00").toLocaleDateString("nl-NL",{weekday:"short",day:"numeric",month:"short"})+(e.time?" · "+esc(e.time):"")+(d===0?" · vandaag":d===1?" · morgen":"")+'</div></div><button class="x" data-a="acal" data-id="'+e.id+'" title="Zet in je agenda" style="color:var(--acc)">'+ic("cal",18)+'</button><button class="x" data-a="adel" data-id="'+e.id+'">×</button></div>'}).join(""):'<div class="empty">Geen afspraken gepland.</div>')+'</div>';
   if(past)h+='<button class="btn ghost" data-a="aclear">'+past+' oude afspraken wissen</button>';
   return h;
 };
@@ -504,6 +504,10 @@ document.addEventListener("click",function(e){
   else if(a==="newcode"){var f=t.closest("form");f.elements.code.value=Array.from(crypto.getRandomValues(new Uint8Array(10))).map(function(b){return "abcdefghjkmnpqrstuvwxyz23456789"[b%31]}).join("")}
   else if(a==="exp"){var bl=new Blob([JSON.stringify(S)],{type:"application/json"}),an=document.createElement("a");an.href=URL.createObjectURL(bl);an.download="huis-backup-"+today()+".json";an.click()}
   else if(a==="pdel"){S.pool=S.pool.filter(function(x){return x.id!==id});save("pool")}
+  else if(a==="acal"){var ev=S.agenda.filter(function(x){return x.id===id})[0];if(ev){var dd=ev.date.replace(/-/g,""),dts;
+    if(ev.time){var hm=ev.time.replace(":",""),eh=parseInt(ev.time.slice(0,2),10)+1,em=ev.time.slice(3,5);dts=dd+"T"+hm+"00/"+(eh<24?dd+"T"+(eh<10?"0":"")+eh+em+"00":dd+"T235900")}
+    else dts=dd+"/"+addDays(ev.date,1).replace(/-/g,"");
+    openExternal("https://calendar.google.com/calendar/render?action=TEMPLATE&text="+encodeURIComponent(ev.text)+"&dates="+dts+"&ctz=Europe%2FAmsterdam&details="+encodeURIComponent("Huis-app ("+ev.who+")"))}}
   else if(a==="adel"){S.agenda=S.agenda.filter(function(x){return x.id!==id});save("agenda")}
   else if(a==="aclear"){S.agenda=S.agenda.filter(function(x){return daysTo(x.date)>=0});save("agenda")}
   else if(a==="ddel"){S.docs=S.docs.filter(function(x){return x.id!==id});save("docs")}
