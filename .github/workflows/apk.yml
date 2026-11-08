@@ -70,6 +70,14 @@ jobs:
         run: |
           sed -i "s/versionCode 1/versionCode ${{ github.run_number }}/; s/versionName \"1.0\"/versionName \"1.${{ github.run_number }}\"/" android/app/build.gradle
           grep -n "versionCode\|versionName" android/app/build.gradle
+          cat >> android/app/build.gradle <<'GRADLE'
+
+          configurations.all {
+              resolutionStrategy {
+                  force 'androidx.core:core:1.13.1', 'androidx.core:core-ktx:1.13.1'
+              }
+          }
+          GRADLE
 
       - name: App-icoon maken
         run: |
