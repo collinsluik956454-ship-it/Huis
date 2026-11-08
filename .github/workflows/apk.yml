@@ -42,6 +42,7 @@ jobs:
           npm init -y
           npm install @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6 @capacitor/app@6 @capacitor/browser@6
           npx cap init "Huis" nl.collin.huis --web-dir www
+          node -e "const f='capacitor.config.json';const c=JSON.parse(require('fs').readFileSync(f,'utf8'));c.server={url:'https://collinsluik956454-ship-it.github.io/Huis/',cleartext:false};require('fs').writeFileSync(f,JSON.stringify(c,null,2));console.log(c)"
           npx cap add android
           npx cap sync android
 
