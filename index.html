@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Huis</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="theme-color" content="#2f6f5e">
+<style>
+:root{--bg:#f6f4ef;--card:#fff;--ink:#22252a;--mut:#7a7f87;--line:#e6e2d9;--acc:#2f6f5e;--acc2:#e7f1ed;--red:#c0392b;--amb:#c77d0a}
+@media(prefers-color-scheme:dark){:root{--bg:#16181b;--card:#1f2226;--ink:#eceae4;--mut:#9aa0a8;--line:#2d3136;--acc:#5bb59c;--acc2:#1f332d;--red:#e5706a;--amb:#e0a542}}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding-bottom:calc(76px + env(safe-area-inset-bottom))}
+header{display:flex;justify-content:space-between;align-items:center;padding:calc(14px + env(safe-area-inset-top)) 16px 8px}
+h1{font-size:22px;margin:0}
+.who{font-size:13px;color:var(--mut)}
+.who select{font:inherit;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:8px;padding:4px 6px}
+main{padding:0 14px 20px;max-width:640px;margin:0 auto}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin:10px 0}
+.card h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--mut);margin:0 0 8px}
+.row{display:flex;align-items:center;gap:10px;padding:9px 0;border-top:1px solid var(--line)}
+.row:first-of-type{border-top:0}
+.row .t{flex:1;min-width:0}
+.row .s{font-size:12.5px;color:var(--mut)}
+.done .t b{text-decoration:line-through;color:var(--mut);font-weight:400}
+.chk{width:24px;height:24px;border-radius:50%;border:2px solid var(--acc);background:none;flex:none;padding:0;color:#fff;font-size:14px;line-height:1}
+.done .chk{background:var(--acc)}
+.x{background:none;border:0;color:var(--mut);font-size:20px;padding:4px 8px}
+form.add{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}
+input,select,button.btn{font:inherit;color:var(--ink)}
+input,select{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px;min-width:0}
+form.add input[type=text]{flex:1 1 150px}
+button.btn{background:var(--acc);color:#fff;border:0;border-radius:10px;padding:10px 14px;font-weight:600}
+button.ghost{background:var(--acc2);color:var(--acc)}
+nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:var(--card);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom)}
+nav button{flex:1;background:none;border:0;padding:9px 0 8px;color:var(--mut);font:inherit;font-size:11.5px}
+nav button span{display:block;font-size:20px}
+nav button.on{color:var(--acc);font-weight:600}
+.big{display:flex;gap:10px}
+.big div{flex:1;background:var(--acc2);border-radius:12px;padding:10px;text-align:center}
+.big b{display:block;font-size:24px;color:var(--acc)}
+.big small{color:var(--mut);font-size:12px}
+.tag{font-size:11.5px;border-radius:99px;padding:2px 8px;background:var(--acc2);color:var(--acc);margin-left:6px}
+.over{color:var(--red)}.soon{color:var(--amb)}
+.bar{display:flex;justify-content:space-between;align-items:center}
+.sync{font-size:12px;color:var(--mut);text-align:center;margin-top:14px}
+.empty{color:var(--mut);font-size:14px;padding:6px 0}
+</style>
+</head>
+<body>
+<header><h1>🏠 Huis</h1><div class="who"><button id="cog" class="x" aria-label="Instellingen">⚙️</button> Ik ben <select id="me"><option>Collin</option><option>Charlotte</option></select></div></header>
+<main id="app"></main>
+<nav id="nav"></nav>
+<script>
+(function(){
+var USERS=["Collin","Charlotte"];
+var S={tasks:[],shop:[],meals:{},budget:[],maint:[]};
+var tab="home", month=new Date().toISOString().slice(0,7), db=null, mode="lokaal";
+function ls(k,v){try{if(v===undefined){var r=localStorage.getItem(k);return r?JSON.parse(r):null}localStorage.setItem(k,JSON.stringify(v))}catch(e){return null}}
+function uid(){return Math.random().toString(36).slice(2,9)}
+function esc(s){return String(s).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})}
+function today(){return new Date().toISOString().slice(0,10)}
+function eur(n){return "€"+Number(n).toFixed(2).replace(".",",")}
+var me=ls("me")||"Collin"; document.getElementById("me").value=me;
+document.getElementById("me").onchange=function(e){me=e.target.value;ls("me",me);render(true)};
+
+// ---- opslag: lokaal + (optioneel) live sync via Firebase Realtime Database (REST)
+var KEYS=["tasks","shop","meals","budget","maint"];
+var cfg=ls("huis-cfg")||{url:"",code:""}, meta=ls("huis-at")||{}, syncErr="";
+function synced(){return !!(cfg.url&&cfg.code)}
+function fb(p){return cfg.url.replace(/\/+$/,"")+"/huis/"+encodeURIComponent(cfg.code)+(p?"/"+p:"")+".json"}
+function norm(k,v){if(v==null)return k==="meals"?{}:[];if(k!=="meals"&&!Array.isArray(v))return Object.keys(v).map(function(x){return v[x]});return v}
+function pull(){
+  if(!synced())return;
+  fetch(fb(),{cache:"no-store"}).then(function(r){if(!r.ok)throw new Error(r.status);return r.json()}).then(function(d){
+    syncErr="";var ch=false;d=d||{};
+    KEYS.forEach(function(k){var r=d[k];if(r&&r.at&&r.at>(meta[k]||0)){S[k]=norm(k,r.v);meta[k]=r.at;ch=true}});
+    if(ch){ls("huis-state",S);ls("huis-at",meta);render()} else if(tab==="set")render();
+    if(!d.tasks&&!d.shop&&!d.budget&&!d.maint&&!d.meals&&KEYS.some(function(k){return (S[k]&&(Array.isArray(S[k])?S[k].length:Object.keys(S[k]).length))})) KEYS.forEach(push);
+  }).catch(function(e){syncErr="Geen verbinding met Firebase ("+e.message+")";if(tab==="set"||tab==="home")render()});
+}
+function push(k){
+  if(!synced())return; var at=Date.now(); meta[k]=at; ls("huis-at",meta);
+  fetch(fb(k),{method:"PUT",body:JSON.stringify({v:S[k],at:at,by:me})}).then(function(r){if(!r.ok)throw new Error(r.status);syncErr=""}).catch(function(e){syncErr="Opslaan online mislukt ("+e.message+"). Wordt later opnieuw geprobeerd.";dirty[k]=1;render()});
+}
+var dirty={};
+function load(){
+  var m=(location.hash||"").match(/^#sync=(.+)$/);
+  if(m){try{var p=atob(decodeURIComponent(m[1])).split("|");cfg={url:p[0],code:p[1]};ls("huis-cfg",cfg)}catch(e){}history.replaceState(null,"",location.pathname+location.search)}
+  var local=ls("huis-state"); if(local) KEYS.forEach(function(k){if(local[k]!==undefined)S[k]=local[k]});
+  render(); if(synced()){pull();setInterval(function(){if(!document.hidden){Object.keys(dirty).forEach(function(k){delete dirty[k];push(k)});pull()}},5000);document.addEventListener("visibilitychange",function(){if(!document.hidden)pull()})}
+  if("serviceWorker" in navigator)navigator.serviceWorker.register("sw.js").catch(function(){});
+}
+function save(k){ ls("huis-state",S); render(); push(k); }
+
+// ---- helpers
+function addMonths(d,m){var x=new Date(d);x.setMonth(x.getMonth()+m);return x.toISOString().slice(0,10)}
+function addDays(d,n){var x=new Date(d);x.setDate(x.getDate()+n);return x.toISOString().slice(0,10)}
+function nextDue(m){return m.last?addMonths(m.last,m.every):today()}
+function daysTo(d){return Math.round((new Date(d)-new Date(today()))/86400000)}
+function nlDate(d){return new Date(d).toLocaleDateString("nl-NL",{day:"numeric",month:"short"})}
+function userOpts(extra,sel){return (extra||[]).concat(USERS).map(function(u){return '<option'+(u===sel?' selected':'')+'>'+u+'</option>'}).join("")}
+
+// ---- views
+var V={};
+V.home=function(){
+  var open=S.tasks.filter(function(t){return !t.done}), mine=open.filter(function(t){return t.who===me||t.who==="Samen"});
+  var shop=S.shop.filter(function(i){return !i.done}).length;
+  var due=S.maint.filter(function(m){return daysTo(nextDue(m))<=14}).sort(function(a,b){return nextDue(a)<nextDue(b)?-1:1});
+  var spent=S.budget.filter(function(b){return b.date.slice(0,7)===month}).reduce(function(a,b){return a+b.amount},0);
+  var h='<div class="card"><div class="big"><div><b>'+mine.length+'</b><small>taken voor jou</small></div><div><b>'+shop+'</b><small>op boodschappenlijst</small></div><div><b>'+eur(spent).replace(",00","")+'</b><small>uitgegeven deze maand</small></div></div></div>';
+  h+='<div class="card"><h2>Binnenkort</h2>';
+  var items=mine.slice(0,5).map(function(t){return '<div class="row"><div class="t"><b>'+esc(t.text)+'</b><div class="s">'+esc(t.who)+(t.due?' · '+nlDate(t.due):'')+'</div></div></div>'}).join("")
+   +due.slice(0,5).map(function(m){var d=daysTo(nextDue(m));return '<div class="row"><div class="t"><b>🔧 '+esc(m.name)+'</b><div class="s '+(d<0?'over':'soon')+'">'+(d<0?'te laat ('+(-d)+' dgn)':'over '+d+' dgn')+'</div></div></div>'}).join("");
+  h+=(items||'<div class="empty">Niets dringends 🎉</div>')+'</div>';
+  var tm=S.meals[todayKey()];
+  h+='<div class="card"><h2>Eten vandaag</h2><div>'+(tm?esc(tm):'<span class="empty">Nog niets gepland</span>')+'</div></div>';
+  h+='<div class="sync">'+(synced()?(syncErr?'🟠 '+esc(syncErr):'🟢 Live gedeeld'):'⚪ Alleen op dit apparaat — zie ⚙️ om te delen met Charlotte')+'</div>';
+  return h;
+};
+V.tasks=function(){
+  var h='<form class="add" data-f="task"><input type="text" name="text" placeholder="Nieuwe taak…" required><select name="who">'+userOpts(["Samen"],me)+'</select><select name="rep"><option value="">Eenmalig</option><option value="7">Wekelijks</option><option value="14">2-wekelijks</option><option value="30">Maandelijks</option></select><input type="date" name="due"><button class="btn">+</button></form>';
+  var sorted=S.tasks.slice().sort(function(a,b){return (a.done-b.done)||((a.due||"9")<(b.due||"9")?-1:1)});
+  h+='<div class="card">'+(sorted.length?sorted.map(function(t){
+    var d=t.due&&!t.done?daysTo(t.due):null;
+    return '<div class="row '+(t.done?'done':'')+'"><button class="chk" data-a="tdone" data-id="'+t.id+'">'+(t.done?'✓':'')+'</button><div class="t"><b>'+esc(t.text)+'</b><span class="tag">'+esc(t.who)+'</span><div class="s">'+(t.due?'<span class="'+(d!==null&&d<0?'over':'')+'">'+nlDate(t.due)+'</span>':'')+(t.rep?' · herhaalt elke '+t.rep+' dgn':'')+'</div></div><button class="x" data-a="tdel" data-id="'+t.id+'">×</button></div>';
+  }).join(""):'<div class="empty">Geen taken. Voeg er een toe.</div>')+'</div>';
+  if(S.tasks.some(function(t){return t.done})) h+='<button class="btn ghost" data-a="tclear">Afgeronde taken opruimen</button>';
+  return h;
+};
+function dayNames(){return["ma","di","wo","do","vr","za","zo"]}
+function weekStart(off){var d=new Date();var w=(d.getDay()+6)%7;d.setDate(d.getDate()-w+(off||0)*7);return d.toISOString().slice(0,10)}
+function todayKey(){var w=(new Date().getDay()+6)%7;return weekStart(0)+"|"+w}
+var weekOff=0;
+V.shop=function(){
+  var h='<form class="add" data-f="shop"><input type="text" name="text" placeholder="Boodschap toevoegen…" required><button class="btn">+</button></form>';
+  var items=S.shop.slice().sort(function(a,b){return a.done-b.done});
+  h+='<div class="card"><h2>Boodschappen</h2>'+(items.length?items.map(function(i){
+    return '<div class="row '+(i.done?'done':'')+'"><button class="chk" data-a="sdone" data-id="'+i.id+'">'+(i.done?'✓':'')+'</button><div class="t"><b>'+esc(i.text)+'</b></div><button class="x" data-a="sdel" data-id="'+i.id+'">×</button></div>';
+  }).join(""):'<div class="empty">Lijst is leeg.</div>')+'</div>';
+  if(S.shop.some(function(i){return i.done})) h+='<button class="btn ghost" data-a="sclear">Afgevinkt wissen</button>';
+  var ws=weekStart(weekOff);
+  h+='<div class="card"><div class="bar"><h2 style="margin:0">Weekmenu</h2><span><button class="x" data-a="wprev">‹</button>'+nlDate(ws)+'<button class="x" data-a="wnext">›</button></span></div>';
+  h+=dayNames().map(function(n,i){var k=ws+"|"+i,v=S.meals[k]||"";
+    return '<div class="row"><b style="width:26px">'+n+'</b><input type="text" style="flex:1" data-meal="'+k+'" value="'+esc(v)+'" placeholder="—"><button class="x" data-a="m2s" data-k="'+k+'" title="Op boodschappenlijst">🛒</button></div>';}).join("");
+  return h+'</div>';
+};
+function balance(list){
+  var tot={},sum=0;USERS.forEach(function(u){tot[u]=0});
+  list.forEach(function(b){tot[b.who]=(tot[b.who]||0)+b.amount;sum+=b.amount});
+  var half=sum/2,diff=tot[USERS[0]]-half; // >0: Collin heeft meer betaald
+  return {tot:tot,sum:sum,diff:diff};
+}
+V.budget=function(){
+  var list=S.budget.filter(function(b){return b.date.slice(0,7)===month}).sort(function(a,b){return a.date<b.date?1:-1});
+  var bal=balance(list);
+  var h='<form class="add" data-f="bud"><input type="text" name="text" placeholder="Wat?" required><input type="number" name="amount" step="0.01" min="0" placeholder="€" style="width:90px" required><select name="who">'+userOpts([],me)+'</select><select name="cat"><option>Vast</option><option>Boodschappen</option><option>Huis</option><option>Overig</option></select><button class="btn">+</button></form>';
+  h+='<div class="card"><div class="bar"><h2 style="margin:0">Maand</h2><input type="month" id="mon" value="'+month+'"></div>';
+  h+='<div class="big" style="margin-top:10px"><div><b>'+eur(bal.sum).replace(",00","")+'</b><small>totaal</small></div>'+USERS.map(function(u){return '<div><b>'+eur(bal.tot[u]||0).replace(",00","")+'</b><small>'+u+'</small></div>'}).join("")+'</div>';
+  if(bal.sum>0&&Math.abs(bal.diff)>=0.01) h+='<p style="margin:10px 0 0;font-size:14px">Voor 50/50 delen: <b>'+(bal.diff>0?USERS[1]:USERS[0])+'</b> betaalt <b>'+eur(Math.abs(bal.diff))+'</b> aan <b>'+(bal.diff>0?USERS[0]:USERS[1])+'</b>.</p>';
+  h+='</div><div class="card">'+(list.length?list.map(function(b){
+    return '<div class="row"><div class="t"><b>'+esc(b.text)+'</b><span class="tag">'+esc(b.cat)+'</span><div class="s">'+nlDate(b.date)+' · betaald door '+esc(b.who)+'</div></div><b>'+eur(b.amount)+'</b><button class="x" data-a="bdel" data-id="'+b.id+'">×</button></div>';
+  }).join(""):'<div class="empty">Geen uitgaven deze maand.</div>')+'</div>';
+  var cats={};list.forEach(function(b){cats[b.cat]=(cats[b.cat]||0)+b.amount});
+  var ck=Object.keys(cats);
+  if(ck.length) h+='<div class="card"><h2>Per categorie</h2>'+ck.map(function(c){return '<div class="row"><div class="t">'+esc(c)+'</div><b>'+eur(cats[c])+'</b></div>'}).join("")+'</div>';
+  return h;
+};
+V.maint=function(){
+  var h='<form class="add" data-f="maint"><input type="text" name="text" placeholder="Onderhoud (bijv. cv-ketel, rookmelders)" required><input type="number" name="every" min="1" placeholder="mnd" style="width:80px" required><input type="date" name="last"><button class="btn">+</button></form>';
+  var list=S.maint.slice().sort(function(a,b){return nextDue(a)<nextDue(b)?-1:1});
+  h+='<div class="card"><h2>Onderhoud</h2>'+(list.length?list.map(function(m){
+    var d=daysTo(nextDue(m));
+    return '<div class="row"><div class="t"><b>'+esc(m.name)+'</b><div class="s">elke '+m.every+' mnd · laatst: '+(m.last?nlDate(m.last):'nog nooit')+'</div><div class="s '+(d<0?'over':d<=14?'soon':'')+'">'+(d<0?'te laat ('+(-d)+' dgn)':'volgende: '+nlDate(nextDue(m))+' (over '+d+' dgn)')+'</div><input type="text" data-note="'+m.id+'" value="'+esc(m.note||"")+'" placeholder="Notitie, garantie, model…" style="width:100%;margin-top:6px;font-size:13px;padding:6px"></div><button class="btn ghost" data-a="mdone" data-id="'+m.id+'">Gedaan</button><button class="x" data-a="mdel" data-id="'+m.id+'">×</button></div>';
+  }).join(""):'<div class="empty">Voeg onderhoud toe, zoals rookmelders, dakgoten of filters.</div>')+'</div>';
+  return h;
+};
+
+V.set=function(){
+  var link=synced()?location.origin+location.pathname+"#sync="+encodeURIComponent(btoa(cfg.url+"|"+cfg.code)):"";
+  return '<div class="card"><h2>Delen met Charlotte</h2><p style="font-size:14px;margin:0 0 8px">Plak hier de <b>databaseURL</b> van je Firebase Realtime Database en kies een koppelcode. Daarna stuur je Charlotte de deellink; zij hoeft niets in te vullen.</p>'
+  +'<form class="add" data-f="cfg"><input type="text" name="url" value="'+esc(cfg.url)+'" placeholder="https://jouwproject-default-rtdb.europe-west1.firebasedatabase.app" style="flex:1 1 100%"><input type="text" name="code" value="'+esc(cfg.code)+'" placeholder="koppelcode"><button type="button" class="btn ghost" data-a="newcode">Nieuwe code</button><button class="btn">Opslaan</button></form>'
+  +(syncErr?'<p class="over" style="font-size:13px">'+esc(syncErr)+'</p>':'')
+  +(link?'<h2 style="margin-top:12px">Deellink</h2><input type="text" readonly value="'+esc(link)+'" style="width:100%;font-size:12px" onclick="this.select()"><p class="s" style="font-size:12px;color:var(--mut)">Houd deze link privé: wie hem heeft, ziet jullie lijsten.</p>':'')
+  +'</div><div class="card"><h2>Back-up</h2><div class="add"><button class="btn ghost" data-a="exp">Exporteren</button><label class="btn ghost" style="cursor:pointer">Importeren<input type="file" id="imp" accept=".json" hidden></label></div></div>'
+  +'<button class="btn ghost" data-tab="home">← Terug</button>';
+};
+var TABS=[["home","🏠","Overzicht"],["tasks","✅","Taken"],["shop","🛒","Eten"],["budget","💶","Budget"],["maint","🔧","Onderhoud"]];
+function render(force){
+  var ae=document.activeElement;
+  if(!force&&ae&&(ae.tagName==="INPUT"||ae.tagName==="SELECT")&&ae.closest("main,form")) return;
+  var keep=window.scrollY;
+  document.getElementById("app").innerHTML=V[tab]();
+  document.getElementById("nav").innerHTML=TABS.map(function(t){return '<button class="'+(t[0]===tab?'on':'')+'" data-tab="'+t[0]+'"><span>'+t[1]+'</span>'+t[2]+'</button>'}).join("");
+  window.scrollTo(0,keep);
+}
+
+// ---- events
+function byId(k,id){return S[k].filter(function(x){return x.id===id})[0]}
+document.addEventListener("click",function(e){
+  var t=e.target.closest("[data-tab],[data-a]"); if(!t) return;
+  if(t.dataset.tab){tab=t.dataset.tab;render(true);window.scrollTo(0,0);return}
+  var a=t.dataset.a,id=t.dataset.id,o;
+  if(a==="tdone"){o=byId("tasks",id);o.done=!o.done;
+    if(o.done&&o.rep){S.tasks.push({id:uid(),text:o.text,who:o.who,rep:o.rep,due:addDays(o.due||today(),+o.rep),done:false})}
+    save("tasks")}
+  else if(a==="tdel"){S.tasks=S.tasks.filter(function(x){return x.id!==id});save("tasks")}
+  else if(a==="tclear"){S.tasks=S.tasks.filter(function(x){return !x.done});save("tasks")}
+  else if(a==="sdone"){o=byId("shop",id);o.done=!o.done;save("shop")}
+  else if(a==="sdel"){S.shop=S.shop.filter(function(x){return x.id!==id});save("shop")}
+  else if(a==="sclear"){S.shop=S.shop.filter(function(x){return !x.done});save("shop")}
+  else if(a==="wprev"){weekOff--;render(true)} else if(a==="wnext"){weekOff++;render(true)}
+  else if(a==="m2s"){var m=S.meals[t.dataset.k];if(m){S.shop.push({id:uid(),text:m,done:false});save("shop")}}
+  else if(a==="bdel"){S.budget=S.budget.filter(function(x){return x.id!==id});save("budget")}
+  else if(a==="newcode"){var f=t.closest("form");f.elements.code.value=Array.from(crypto.getRandomValues(new Uint8Array(10))).map(function(b){return "abcdefghjkmnpqrstuvwxyz23456789"[b%31]}).join("")}
+  else if(a==="exp"){var bl=new Blob([JSON.stringify(S)],{type:"application/json"}),an=document.createElement("a");an.href=URL.createObjectURL(bl);an.download="huis-backup-"+today()+".json";an.click()}
+  else if(a==="mdone"){o=byId("maint",id);o.last=today();save("maint")}
+  else if(a==="mdel"){S.maint=S.maint.filter(function(x){return x.id!==id});save("maint")}
+});
+document.addEventListener("submit",function(e){
+  e.preventDefault();var f=e.target,d=new FormData(f),k=f.dataset.f;
+  if(k==="task"){S.tasks.push({id:uid(),text:d.get("text"),who:d.get("who"),rep:d.get("rep"),due:d.get("due")||"",done:false});save("tasks")}
+  if(k==="shop"){S.shop.push({id:uid(),text:d.get("text"),done:false});save("shop")}
+  if(k==="bud"){S.budget.push({id:uid(),text:d.get("text"),amount:parseFloat(d.get("amount"))||0,who:d.get("who"),cat:d.get("cat"),date:month===today().slice(0,7)?today():month+"-01"});save("budget")}
+  if(k==="cfg"){cfg={url:(d.get("url")||"").trim(),code:(d.get("code")||"").trim()};ls("huis-cfg",cfg);meta={};ls("huis-at",meta);location.reload();return}
+  if(k==="maint"){S.maint.push({id:uid(),name:d.get("text"),every:parseInt(d.get("every"))||12,last:d.get("last")||"",note:""});save("maint")}
+});
+document.addEventListener("change",function(e){
+  var t=e.target;
+  if(t.id==="imp"&&t.files[0]){var rd=new FileReader();rd.onload=function(){try{var o=JSON.parse(rd.result);KEYS.forEach(function(k){if(o[k]!==undefined){S[k]=o[k];save(k)}})}catch(x){}};rd.readAsText(t.files[0])}
+  if(t.id==="mon"&&t.value){month=t.value;render(true)}
+  if(t.dataset.meal!==undefined){if(t.value)S.meals[t.dataset.meal]=t.value;else delete S.meals[t.dataset.meal];save("meals")}
+  if(t.dataset.note!==undefined){var o=byId("maint",t.dataset.note);if(o){o.note=t.value;save("maint")}}
+});
+document.getElementById("cog").onclick=function(){tab="set";render(true);window.scrollTo(0,0)};
+load();
+})();
+</script>
+</body>
+</html>
