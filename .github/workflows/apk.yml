@@ -76,7 +76,7 @@ jobs:
           import os
           res='android/app/src/main/res'
           dens={'mdpi':1,'hdpi':1.5,'xhdpi':2,'xxhdpi':3,'xxxhdpi':4}
-          green=(47,111,94,255)
+          green=(29,92,99,255)
           def house(size, inset):
               im=Image.new('RGBA',(size,size),(0,0,0,0)); d=ImageDraw.Draw(im); s=size
               m=s*inset
@@ -92,7 +92,7 @@ jobs:
               base=Image.new('RGBA',(sz,sz),green); base.alpha_composite(house(sz,0.20))
               base.save(f'{d}/ic_launcher.png'); base.save(f'{d}/ic_launcher_round.png')
           os.makedirs(f'{res}/values',exist_ok=True)
-          open(f'{res}/values/ic_launcher_background.xml','w').write('<?xml version="1.0" encoding="utf-8"?>\n<resources>\n    <color name="ic_launcher_background">#2F6F5E</color>\n</resources>\n')
+          open(f'{res}/values/ic_launcher_background.xml','w').write('<?xml version="1.0" encoding="utf-8"?>\n<resources>\n    <color name="ic_launcher_background">#1D5C63</color>\n</resources>\n')
           print('iconen gemaakt')
           PY
 
