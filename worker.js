@@ -3,7 +3,7 @@
 // Optioneel: APP_URL (adres van je Huis-app, bijv. https://naam.github.io/Huis/)
 
 const EB = "https://api.enablebanking.com";
-const BANKS = { abn: "ABN AMRO", ing: "ING" };
+const BANKS = { abn: "ABN AMRO", ing: "ING", revolut: "Revolut" };
 
 const b64u = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 const enc = (s) => b64u(new TextEncoder().encode(s));
@@ -108,8 +108,14 @@ export default {
 
       if (url.pathname === "/auth" && request.method === "POST") {
         const { bank, scope } = await request.json();
-        const name = BANKS[bank];
+        let name = BANKS[bank];
         if (!name) return json({ error: "Onbekende bank" }, 400);
+        if (bank === "revolut") {
+          const l = await eb(env, "/aspsps?country=NL");
+          const m = (l.aspsps || []).map((x) => x.name).filter((n) => /revolut/i.test(n));
+          if (!m.length) return json({ error: "Revolut staat niet in de lijst van Enable Banking voor Nederland" }, 404);
+          name = m.find((n) => /^revolut$/i.test(n)) || m[0];
+        }
         const rand = crypto.randomUUID().slice(0, 8);
         const valid = new Date(Date.now() + 90 * 86400000).toISOString();
         const r = await eb(env, "/auth", "POST", {

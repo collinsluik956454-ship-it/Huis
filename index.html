@@ -355,7 +355,7 @@ V.shop=function(){return eseg()+(etab==="list"?listView():etab==="rec"?recView()
 var CATS=["Vaste lasten","Boodschappen","Kind","Auto & vervoer","Overig"];
 var bsub=null, imp=null;
 // ---- bankkoppeling (via bankbrug)
-var BANKNAME={abn:"ABN AMRO",ing:"ING"};
+var BANKNAME={abn:"ABN AMRO",ing:"ING",revolut:"Revolut"};
 var CAP=window.Capacitor, NATIVE=!!(CAP&&CAP.isNativePlatform&&CAP.isNativePlatform());
 var pcal=null, pcalErr="", pcalTried=false;
 function calPlug(){return NATIVE&&CAP.Plugins&&CAP.Plugins.CapacitorCalendar}
@@ -400,7 +400,7 @@ function bankCard(){
     var d=l.until?daysTo(l.until.slice(0,10)):null;
     return '<div class="row"><div class="t"><b>'+esc(l.bank)+'</b><span class="tag">'+(l.scope==="joint"?"Gezamenlijk":"Eigen "+esc(l.scope))+'</span><div class="s '+(d!==null&&d<0?'over':d!==null&&d<=7?'soon':'')+'">'+(l.acc||[]).map(function(a){return esc(ibanFmt(a.iban||a.name||""))}).join(", ")+(d!==null?' · '+(d<0?'verlopen, koppel opnieuw':'nog '+d+' dgn geldig'):'')+'</div></div><button class="btn ghost" data-a="bfetch" data-i="'+i+'">Ophalen</button><button class="x" data-a="bunlink" data-i="'+i+'">×</button></div>';
   }).join("");
-  h+='<form class="add" data-f="blink" style="margin-top:8px"><select name="bank"><option value="abn">ABN AMRO</option><option value="ing">ING</option></select><input type="hidden" name="scope" value="'+esc(bsub)+'"><button class="btn">Koppelen</button></form>';
+  h+='<form class="add" data-f="blink" style="margin-top:8px"><select name="bank"><option value="abn">ABN AMRO</option><option value="ing">ING</option><option value="revolut">Revolut</option></select><input type="hidden" name="scope" value="'+esc(bsub)+'"><button class="btn">Koppelen</button></form>';
   h+='<div class="add" style="margin:0"><input type="text" id="bcode" placeholder="Bankcode plakken (Android-app)" style="flex:1 1 150px"><button class="btn ghost" data-a="bpaste">Opslaan</button></div>';
   return h+'</div>';
 }
