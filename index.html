@@ -78,7 +78,7 @@ nav button.on{color:var(--acc);font-weight:600}
 <script>
 (function(){
 var USERS=["Collin","Charlotte"];
-var S={tasks:[],shop:[],meals:{},budget:[],maint:[],pool:[],agenda:[],docs:[],bset:{Collin:0,Charlotte:0},bank:{links:[]},mdet:{},recipes:[],mset:{days:[0,1,3,4,6],all:false}};
+var S={tasks:[],shop:[],meals:{},budget:[],maint:[],pool:[],agenda:[],docs:[],bset:{Collin:0,Charlotte:0},bank:{links:[]},mdet:{},recipes:[],mset:{days:[0,1,3,4,6],all:false},bacc:{}};
 var tab="home", month=new Date().toISOString().slice(0,7), db=null, mode="lokaal";
 function ls(k,v){try{if(v===undefined){var r=localStorage.getItem(k);return r?JSON.parse(r):null}localStorage.setItem(k,JSON.stringify(v))}catch(e){return null}}
 var ICONS={
@@ -105,39 +105,124 @@ document.getElementById("logo").innerHTML=ic("home",20);document.getElementById(
 document.getElementById("me").onchange=function(e){me=e.target.value;ls("me",me);render(true)};
 
 // ---- opslag: lokaal + (optioneel) live sync via Firebase Realtime Database (REST)
-var KEYS=["tasks","shop","meals","budget","maint","pool","agenda","docs","bset","bank","mdet","recipes","mset"], OBJ={meals:1,bset:1,bank:1,mdet:1,mset:1};
+var KEYS=["tasks","shop","meals","budget","maint","pool","agenda","docs","bset","bank","mdet","recipes","mset","bacc"], OBJ={meals:1,bset:1,bank:1,mdet:1,mset:1,bacc:1};
 var cfg=ls("huis-cfg")||{url:"",code:""}, meta=ls("huis-at")||{}, syncErr="";
 function synced(){return !!(cfg.url&&cfg.code)}
 function fb(p,t){return cfg.url.replace(/\/+$/,"")+"/huis/"+encodeURIComponent(cfg.code)+(p?"/"+p:"")+".json"+(t?"?auth="+encodeURIComponent(t):"")}
-// ---- inloggen met e-mail (Firebase Authentication, REST)
-var auth=ls("huis-auth");
-function authOn(){return !!cfg.apiKey}
+// ---- inloggen met e-mail (Firebase Authentication, REST), beheerder en leden
+var auth=ls("huis-auth"), role=ls("huis-role")||"", admData=null, admLoading=false, reqCount=0, gateTab="login", pullN=0;
+var ADM="root.child('admins').child(auth.uid).exists()", MEM="root.child('members').child(auth.uid).exists()";
+var RULES_TXT=JSON.stringify({rules:{admins:{".read":"auth != null",".write":"!root.child('admins').exists() || "+ADM},members:{".read":ADM,"$uid":{".read":"auth != null && auth.uid === $uid",".write":ADM}},requests:{".read":ADM,"$uid":{".write":"auth != null && (auth.uid === $uid || "+ADM+")"}},huis:{".read":"auth != null && "+MEM,"$code":{"cfg":{".write":"auth != null && "+ADM},"$other":{".write":"$other !== 'cfg' && auth != null && "+MEM}}}}},null,2);
+function authOn(){return !!(cfg.apiKey&&cfg.url)}
+function copyTxt(t,msg){try{navigator.clipboard.writeText(t).then(function(){alert2(msg||"Gekopieerd")},function(){alert2("Kopiëren lukt niet, selecteer de tekst zelf")})}catch(x){alert2("Kopiëren lukt niet, selecteer de tekst zelf")}}
+function inviteLink(){return location.origin+location.pathname+"#sync="+encodeURIComponent(btoa(cfg.url+"|"+cfg.code+"|||"+(cfg.apiKey||"")))}
+function parseInvite(t){t=String(t||"").trim();var m=t.match(/#sync=(.+)$/),x=m?m[1]:t;try{var p=atob(decodeURIComponent(x)).split("|");if(!/^https?:\/\//.test(p[0])||!p[1])return null;return {url:p[0],code:p[1],bankUrl:p[2]||"",bankToken:p[3]||"",apiKey:p[4]||""}}catch(e){return null}}
 function tok(){
   if(!authOn())return Promise.resolve("");
-  if(!auth||!auth.refreshToken){showLogin();return Promise.reject(new Error("niet ingelogd"))}
+  if(!auth||!auth.refreshToken){showGate("welcome");return Promise.reject(new Error("niet ingelogd"))}
   if(auth.exp>Date.now()+60000)return Promise.resolve(auth.idToken);
   return fetch("https://securetoken.googleapis.com/v1/token?key="+encodeURIComponent(cfg.apiKey),{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body:"grant_type=refresh_token&refresh_token="+encodeURIComponent(auth.refreshToken)}).then(function(r){return r.json().then(function(j){
-    if(!r.ok){if(/TOKEN|USER/.test((j.error&&j.error.message)||"")){auth=null;ls("huis-auth",null);showLogin()}throw new Error("sessie verlopen")}
+    if(!r.ok){if(/TOKEN|USER/.test((j.error&&j.error.message)||"")){auth=null;ls("huis-auth",null);showGate("welcome")}throw new Error("sessie verlopen")}
     auth.idToken=j.id_token;auth.refreshToken=j.refresh_token;auth.exp=Date.now()+Number(j.expires_in)*1000;ls("huis-auth",auth);return auth.idToken})});
 }
-function authErr(m){m=m||"";return /INVALID_LOGIN|INVALID_PASSWORD|EMAIL_NOT_FOUND|INVALID_EMAIL/.test(m)?"E-mailadres of wachtwoord klopt niet":/TOO_MANY/.test(m)?"Te vaak geprobeerd, wacht even":/USER_DISABLED/.test(m)?"Dit account is uitgezet":m||"Inloggen mislukt"}
-function showLogin(){
-  if(document.getElementById("login"))return;
-  var d=document.createElement("div");d.id="login";d.style.cssText="position:fixed;inset:0;z-index:50;background:var(--bg,#f4f6f7);display:flex;align-items:center;justify-content:center;padding:20px";
-  d.innerHTML='<form class="card" style="width:100%;max-width:380px"><div style="text-align:center;margin-bottom:10px"><span style="display:inline-flex;color:var(--acc)">'+ic("home",34)+'</span><h2 style="margin:6px 0 2px">Huis</h2><div class="s" style="color:var(--mut);font-size:13px">Log in met je e-mailadres</div></div><select name="who" style="width:100%;margin-bottom:8px"><option>Collin</option><option>Charlotte</option></select><input type="email" name="email" placeholder="E-mailadres" autocomplete="username" required style="width:100%;margin-bottom:8px"><input type="password" name="pw" placeholder="Wachtwoord" autocomplete="current-password" required style="width:100%;margin-bottom:8px"><button class="btn" style="width:100%">Inloggen</button><p id="lerr" class="over" style="font-size:13px;margin:8px 0 0"></p></form>';
-  document.body.appendChild(d);
-  var f=d.querySelector("form");f.elements.who.value=me;
-  f.onsubmit=function(e){e.preventDefault();var b=f.querySelector("button");b.disabled=true;document.getElementById("lerr").textContent="";
-    fetch("https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key="+encodeURIComponent(cfg.apiKey),{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email:f.elements.email.value.trim(),password:f.elements.pw.value,returnSecureToken:true})}).then(function(r){return r.json().then(function(j){
-      if(!r.ok)throw new Error((j.error&&j.error.message)||"");
-      auth={email:j.email,idToken:j.idToken,refreshToken:j.refreshToken,exp:Date.now()+Number(j.expiresIn)*1000};ls("huis-auth",auth);me=f.elements.who.value;ls("me",me);location.reload()})}).catch(function(x){b.disabled=false;document.getElementById("lerr").textContent=authErr(x.message==="Failed to fetch"?"Geen verbinding":x.message)})};
+function dbUrl(p,t){return cfg.url.replace(/\/+$/,"")+"/"+p+".json"+(t?"?auth="+encodeURIComponent(t):"")}
+function dbReq(p,method,body){
+  return tok().then(function(t){return fetch(dbUrl(p,t),{method:method||"GET",body:body===undefined?undefined:JSON.stringify(body)})}).then(function(r){
+    if(r.status===401||r.status===403)throw new Error("Geen toegang ("+r.status+")");
+    if(!r.ok)throw new Error("Fout "+r.status);return r.json()});
+}
+function authErr(m){m=m||"";return /INVALID_LOGIN|INVALID_PASSWORD|EMAIL_NOT_FOUND/.test(m)?"E-mailadres of wachtwoord klopt niet":/INVALID_EMAIL/.test(m)?"Dat e-mailadres klopt niet":/EMAIL_EXISTS/.test(m)?"Dit e-mailadres heeft al een account. Kies Inloggen.":/WEAK_PASSWORD/.test(m)?"Kies een wachtwoord van minstens 6 tekens":/OPERATION_NOT_ALLOWED/.test(m)?"Aanmelden staat nog uit. De beheerder moet in Firebase onder Authentication → Instellingen → Gebruikersacties 'Aanmaken (aanmelden)' aanzetten.":/TOO_MANY/.test(m)?"Te vaak geprobeerd, wacht even":/USER_DISABLED/.test(m)?"Dit account is uitgezet":m==="Failed to fetch"?"Geen verbinding":m||"Dat lukte niet"}
+function authCall(kind,email,pw){
+  return fetch("https://identitytoolkit.googleapis.com/v1/accounts:"+kind+"?key="+encodeURIComponent(cfg.apiKey),{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email:email,password:pw,returnSecureToken:true})}).then(function(r){return r.json().then(function(j){
+    if(!r.ok)throw new Error((j.error&&j.error.message)||"");
+    auth={email:j.email,uid:j.localId,idToken:j.idToken,refreshToken:j.refreshToken,exp:Date.now()+Number(j.expiresIn)*1000};ls("huis-auth",auth)})});
+}
+function checkAccess(){
+  var u=auth.uid;
+  return Promise.all([dbReq("members/"+u),dbReq("admins/"+u)]).then(function(r){
+    var m=r[0], isA=!!r[1];
+    if(m||isA){
+      role=isA?"admin":"member";ls("huis-role",role);
+      if(m&&m.who){me=m.who;ls("me",me);document.getElementById("me").value=me}
+      else if(isA)dbReq("members/"+u,"PUT",{who:me,email:auth.email,at:Date.now()}).catch(function(){});
+      return "ok"}
+    return dbReq("admins").then(function(a){
+      if(!a){showGate("claim");return "stop"}
+      return dbReq("requests/"+u,"PUT",{who:ls("huis-who")||ls("me")||"Collin",email:auth.email,at:Date.now()}).then(function(){showGate("pending");return "stop"})});
+  });
+}
+function gateEl(){
+  var d=document.getElementById("gate");if(d)return d;
+  d=document.createElement("div");d.id="gate";d.style.cssText="position:fixed;inset:0;z-index:50;background:var(--bg);overflow:auto;padding:16px;display:flex;justify-content:center;align-items:flex-start";document.body.appendChild(d);
+  d.onclick=function(e){var t=e.target.closest("[data-g]");if(!t)return;var g=t.dataset.g;
+    if(g==="tab-login"||g==="tab-signup"){gateTab=g==="tab-login"?"login":"signup";showGate("welcome")}
+    else if(g==="reset"){ls("huis-cfg",null);ls("huis-auth",null);ls("huis-role","");location.reload()}
+    else if(g==="local"){ls("huis-local",1);location.reload()}
+    else if(g==="retry"){location.reload()}
+    else if(g==="logout"){auth=null;ls("huis-auth",null);ls("huis-role","");location.reload()}
+    else if(g==="copyrules"){copyTxt(RULES_TXT,"Regels gekopieerd")}
+    else if(g==="claim"){t.disabled=true;dbReq("admins/"+auth.uid,"PUT",true).then(function(){return dbReq("members/"+auth.uid,"PUT",{who:ls("huis-who")||ls("me")||"Collin",email:auth.email,at:Date.now()})}).then(function(){location.reload()}).catch(function(x){t.disabled=false;showGate(/403|401/.test(x.message)?"rules":"claim",authErr(x.message))})}
+  };
+  d.onsubmit=function(e){
+    e.preventDefault();var f=e.target,k=f.dataset.gf,el=f.elements,msg=f.querySelector(".gmsg"),b=f.querySelector("button");
+    function err(t){msg.textContent=t;if(b)b.disabled=false}
+    msg.textContent="";if(b)b.disabled=true;
+    if(k==="login"){authCall("signInWithPassword",el.email.value.trim(),el.pw.value).then(function(){location.reload()}).catch(function(x){err(authErr(x.message))})}
+    else if(k==="signup"){
+      if(el.pw.value!==el.pw2.value)return err("De wachtwoorden zijn niet gelijk");
+      if(el.pw.value.length<6)return err("Kies een wachtwoord van minstens 6 tekens");
+      authCall("signUp",el.email.value.trim(),el.pw.value).then(function(){ls("me",el.who.value);ls("huis-who",el.who.value);location.reload()}).catch(function(x){err(authErr(x.message))})}
+    else if(k==="invite"){var iv=parseInvite(el.code.value);if(!iv)return err("Die uitnodiging herken ik niet. Plak de hele link of code.");cfg={url:iv.url,code:iv.code,bankUrl:"",bankToken:"",apiKey:iv.apiKey};ls("huis-cfg",cfg);location.reload()}
+    else if(k==="admin"){var u=el.url.value.trim().replace(/\/+$/,""),ak=el.apiKey.value.trim();if(!/^https:\/\/.+/.test(u))return err("De databaseURL moet met https:// beginnen");if(ak.length<20)return err("De Web API-sleutel lijkt te kort");
+      cfg={url:u,code:Array.from(crypto.getRandomValues(new Uint8Array(10))).map(function(x){return "abcdefghjkmnpqrstuvwxyz23456789"[x%31]}).join(""),apiKey:ak};ls("huis-cfg",cfg);location.reload()}
+  };
+  return d;
+}
+function hideGate(){var d=document.getElementById("gate");if(d)d.remove()}
+function gHead(sub){return '<div style="text-align:center;margin:26px 0 16px"><span style="display:inline-flex;align-items:center;justify-content:center;width:64px;height:64px;border-radius:18px;background:var(--acc);color:#fff">'+ic("home",34)+'</span><h2 style="margin:12px 0 2px;font-size:26px">Huis</h2><div style="color:var(--mut);font-size:14px">'+sub+'</div></div>'}
+function gIn(name,type,ph,ac){return '<input type="'+type+'" name="'+name+'" placeholder="'+ph+'" autocomplete="'+(ac||"off")+'" required style="width:100%;margin-bottom:8px">'}
+function gCard(k,inner,msg){return '<form class="card" data-gf="'+k+'" style="margin:0 0 12px">'+inner+'<p class="gmsg over" style="font-size:13px;margin:8px 0 0">'+esc(msg||"")+'</p></form>'}
+function gBtn(g,t,cls){return '<button type="button" class="btn '+(cls===undefined?"ghost":cls)+'" data-g="'+g+'" style="width:100%;margin-top:8px">'+t+'</button>'}
+function showGate(mode,msg){
+  var d=gateEl(), c='<div style="width:100%;max-width:400px">';
+  if(mode==="busy")c+=gHead("Even laden…");
+  else if(mode==="welcome"){
+    c+=gHead("Collin &amp; Charlotte")+'<div class="add" style="margin:0 0 12px"><button class="btn '+(gateTab==="login"?"":"ghost")+'" data-g="tab-login" style="flex:1">Inloggen</button><button class="btn '+(gateTab==="signup"?"":"ghost")+'" data-g="tab-signup" style="flex:1">Aanmelden</button></div>';
+    if(gateTab==="login")c+=gCard("login",gIn("email","email","E-mailadres","username")+gIn("pw","password","Wachtwoord","current-password")+'<button class="btn" style="width:100%">Inloggen</button>',msg);
+    else c+=gCard("signup",'<label style="font-size:13px;color:var(--mut)">Wie ben je?</label><select name="who" style="width:100%;margin:4px 0 8px"><option>Collin</option><option>Charlotte</option></select>'+gIn("email","email","E-mailadres","username")+gIn("pw","password","Wachtwoord (minstens 6 tekens)","new-password")+gIn("pw2","password","Herhaal wachtwoord","new-password")+'<button class="btn" style="width:100%">Aanmelden</button><p style="font-size:12px;color:var(--mut);margin:8px 0 0">Na het aanmelden keurt de beheerder je aanvraag goed. De allereerste die zich aanmeldt wordt beheerder.</p>',msg);
+    c+='<p style="text-align:center;margin:6px 0 0"><button type="button" class="btn ghost" data-g="reset" style="font-size:12px;padding:6px 10px">Andere verbinding gebruiken</button></p>';
+  }
+  else if(mode==="setup"){
+    c+=gHead("Welkom bij de huisapp van Collin &amp; Charlotte")
+      +gCard("invite",'<h2 style="margin:0 0 6px">Ik heb een uitnodiging</h2><p style="font-size:13px;color:var(--mut);margin:0 0 8px">Plak de link of code die je van de beheerder kreeg.</p><input type="text" name="code" placeholder="Uitnodigingslink of code" required style="width:100%;margin-bottom:8px"><button class="btn" style="width:100%">Verder</button>',"")
+      +gCard("admin",'<h2 style="margin:0 0 6px">Ik ben de beheerder</h2><p style="font-size:13px;color:var(--mut);margin:0 0 8px">Eerste keer instellen. Je vindt dit in Firebase: <b>Realtime Database</b> (databaseURL) en <b>Projectinstellingen → Algemeen</b> (Web API-sleutel).</p><input type="text" name="url" placeholder="databaseURL (https://…firebasedatabase.app)" required style="width:100%;margin-bottom:8px"><input type="text" name="apiKey" placeholder="Web API-sleutel (AIza…)" required style="width:100%;margin-bottom:8px"><button class="btn" style="width:100%">Instellen</button>',msg)
+      +gBtn("local","Alleen op dit toestel proberen");
+  }
+  else if(mode==="claim")c+=gHead("Eerste gebruiker")+'<div class="card" style="margin:0"><p style="margin:0 0 10px">Er is nog geen beheerder. Als je op de knop tikt word jij beheerder van deze huisapp. Daarna keur jij aanvragen van anderen goed en stel jij alle koppelingen in.</p><button type="button" class="btn" data-g="claim" style="width:100%">Ik word beheerder</button><p class="gmsg over" style="font-size:13px;margin:8px 0 0">'+esc(msg||"")+'</p>'+gBtn("logout","Uitloggen")+'</div>';
+  else if(mode==="pending")c+=gHead("Aanvraag verstuurd")+'<div class="card" style="margin:0"><p style="margin:0 0 10px">Je bent aangemeld als <b>'+esc(auth&&auth.email||"")+'</b>. Wacht tot de beheerder je goedkeurt. Dat doet hij of zij in de app onder Meer → Account &amp; beheer.</p><button type="button" class="btn" data-g="retry" style="width:100%">Opnieuw controleren</button>'+gBtn("logout","Uitloggen")+'</div>';
+  else if(mode==="rules")c+=gHead("Firebase-regels bijwerken")+'<div class="card" style="margin:0"><p style="margin:0 0 8px;font-size:14px">De database laat de app nog niet toe. De beheerder moet de nieuwe regels plakken: Firebase → Realtime Database → tabblad <b>Regels</b> → alles vervangen → <b>Publiceren</b>. Zet ook onder Authentication → Instellingen → Gebruikersacties <b>Aanmaken (aanmelden)</b> aan.</p><textarea readonly rows="8" style="width:100%;font-size:11px" onclick="this.select()">'+esc(RULES_TXT)+'</textarea><button type="button" class="btn" data-g="copyrules" style="width:100%;margin-top:8px">Kopieer regels</button><button type="button" class="btn ghost" data-g="retry" style="width:100%;margin-top:8px">Opnieuw proberen</button>'+gBtn("logout","Uitloggen")+'</div>';
+  d.innerHTML=c+'</div>';
+}
+function loadAdm(){
+  if(role!=="admin"||admLoading)return;admLoading=true;
+  Promise.all([dbReq("requests"),dbReq("members"),dbReq("admins")]).then(function(r){admData={req:r[0]||{},mem:r[1]||{},adm:r[2]||{}};reqCount=Object.keys(admData.req).length;admLoading=false;render()}).catch(function(e){admLoading=false;admData={req:{},mem:{},adm:{},err:e.message};render()});
+}
+function startApp(){
+  hideGate();render();
+  if(synced()){pull();setInterval(function(){if(!document.hidden){Object.keys(dirty).forEach(function(k){delete dirty[k];push(k)});pull()}},5000);document.addEventListener("visibilitychange",function(){if(!document.hidden)pull()})}
+}
+function pushCfg(){
+  if(!synced()||(authOn()&&role!=="admin"))return;var at=Date.now();meta.cfg=at;ls("huis-at",meta);
+  tok().then(function(t){return fetch(fb("cfg",t),{method:"PUT",body:JSON.stringify({v:{bankUrl:cfg.bankUrl||"",bankToken:cfg.bankToken||""},at:at,by:me})})}).catch(function(){});
 }
 function norm(k,v){if(v==null)return k==="bset"?{Collin:0,Charlotte:0}:k==="bank"?{links:[]}:k==="mset"?{days:[0,1,3,4,6],all:false}:OBJ[k]?{}:[];if(!OBJ[k]&&!Array.isArray(v))return Object.keys(v).map(function(x){return v[x]});return v}
 function pull(){
   if(!synced())return;
-  tok().then(function(t){return fetch(fb("",t),{cache:"no-store"})}).then(function(r){if(r.status===401||r.status===403){if(authOn()){auth=null;ls("huis-auth",null);showLogin()}throw new Error(r.status)}if(!r.ok)throw new Error(r.status);return r.json()}).then(function(d){
+  tok().then(function(t){return fetch(fb("",t),{cache:"no-store"})}).then(function(r){if(r.status===401||r.status===403){if(authOn())showGate("rules","Geen toegang tot de database. Is je aanvraag al goedgekeurd? Of moeten de regels nog gepubliceerd worden?");throw new Error(r.status)}if(!r.ok)throw new Error(r.status);return r.json()}).then(function(d){
     syncErr="";var ch=false;d=d||{};
     KEYS.forEach(function(k){var r=d[k];if(r&&r.at&&r.at>(meta[k]||0)){S[k]=norm(k,r.v);meta[k]=r.at;ch=true}});
+    var c=d.cfg;if(c&&c.at&&c.at>(meta.cfg||0)&&c.v){cfg.bankUrl=c.v.bankUrl||"";cfg.bankToken=c.v.bankToken||"";ls("huis-cfg",cfg);meta.cfg=c.at;ch=true}
+    if(role==="admin"&&(pullN++%3===0))loadAdm();
     if(ch){ls("huis-state",S);ls("huis-at",meta);render()} else if(tab==="set")render();
     if(Object.keys(d).length===0&&KEYS.some(function(k){return (S[k]&&(Array.isArray(S[k])?S[k].length:Object.keys(S[k]).length))})) KEYS.forEach(push);
   }).catch(function(e){syncErr="Geen verbinding met Firebase ("+e.message+")";if(tab==="set"||tab==="home")render()});
@@ -149,14 +234,19 @@ function push(k){
 var dirty={};
 function load(){
   var m=(location.hash||"").match(/^#sync=(.+)$/);
-  if(m){try{var p=atob(decodeURIComponent(m[1])).split("|");cfg={url:p[0],code:p[1],bankUrl:p[2]||cfg.bankUrl||"",bankToken:p[3]||cfg.bankToken||"",apiKey:p[4]||cfg.apiKey||""};ls("huis-cfg",cfg)}catch(e){}history.replaceState(null,"",location.pathname+location.search)}
+  if(m){var iv=parseInvite(m[1]);if(iv){cfg={url:iv.url,code:iv.code,bankUrl:iv.bankUrl||cfg.bankUrl||"",bankToken:iv.bankToken||cfg.bankToken||"",apiKey:iv.apiKey||cfg.apiKey||""};ls("huis-cfg",cfg)}history.replaceState(null,"",location.pathname+location.search)}
   var local=ls("huis-state"); if(local) KEYS.forEach(function(k){if(local[k]!==undefined)S[k]=local[k]});
   var bm=(location.hash||"").match(/^#bank=(.+)$/);
   if(bm){history.replaceState(null,"",location.pathname+location.search);tab="budget";setTimeout(function(){addLinkFromCode(decodeURIComponent(bm[1]))},0)}
-  if(authOn()&&(!auth||!auth.refreshToken)){render();showLogin();return}
-  if(authOn())document.getElementById("me").disabled=true;
-  render(); if(synced()){pull();setInterval(function(){if(!document.hidden){Object.keys(dirty).forEach(function(k){delete dirty[k];push(k)});pull()}},5000);document.addEventListener("visibilitychange",function(){if(!document.hidden)pull()})}
+  document.getElementById("me").disabled=authOn();
   if("serviceWorker" in navigator)navigator.serviceWorker.register("sw.js").catch(function(){});
+  if(!authOn()){if(synced()||ls("huis-local"))startApp();else showGate("setup");return}
+  if(!auth||!auth.refreshToken){showGate("welcome");return}
+  showGate("busy");
+  checkAccess().then(function(r){if(r==="ok"){startApp();if(role==="admin")loadAdm()}}).catch(function(e){
+    if(/Geen toegang/.test(e.message))showGate("rules");
+    else if(role)startApp();
+    else showGate("pending","Geen verbinding: "+e.message)});
 }
 function save(k){ ls("huis-state",S); render(); push(k); }
 
@@ -167,7 +257,7 @@ function nextDue(m){if(!m.last)return today();var u=m.unit||"m";return u==="m"?a
 function everyTxt(m){var u=m.unit||"m",n=+m.every;return n+" "+(u==="m"?"mnd":u==="w"?(n>1?"weken":"week"):(n>1?"dagen":"dag"))}
 function ibanOk(s){s=(s||"").replace(/\s/g,"").toUpperCase();if(!/^[A-Z]{2}\d{2}[A-Z0-9]{10,30}$/.test(s))return false;var r=(s.slice(4)+s.slice(0,4)).replace(/[A-Z]/g,function(c){return c.charCodeAt(0)-55}),rem=0;for(var i=0;i<r.length;i++)rem=(rem*10+ +r[i])%97;return rem===1}
 function ibanFmt(s){return (s||"").replace(/\s/g,"").toUpperCase().replace(/(.{4})/g,"$1 ").trim()}
-function alert2(m){var d=document.createElement("div");d.className="card over";d.style.cssText="position:fixed;left:14px;right:14px;top:70px;z-index:9;box-shadow:0 4px 20px #0004";d.textContent=m;document.body.appendChild(d);setTimeout(function(){d.remove()},4500)}
+function alert2(m){var d=document.createElement("div");d.className="card over";d.style.cssText="position:fixed;left:14px;right:14px;top:70px;z-index:99;box-shadow:0 4px 20px #0004";d.textContent=m;document.body.appendChild(d);setTimeout(function(){d.remove()},4500)}
 function line(t,s,c,i){return '<div class="row">'+(i?'<span class="ico">'+ic(i,18)+'</span>':'')+'<div class="t"><b>'+t+'</b><div class="s '+(c||"")+'">'+s+'</div></div></div>'}
 function back(){return '<button class="btn ghost" data-tab="more" style="margin-bottom:6px">← Meer</button>'}
 function daysTo(d){return Math.round((new Date(d)-new Date(today()))/86400000)}
@@ -176,29 +266,29 @@ function userOpts(extra,sel){return (extra||[]).concat(USERS).map(function(u){re
 
 // ---- views
 var V={};
+function pcalAuto(){if(calPlug()&&ls("huis-pcal")&&!pcalTried){pcalTried=true;loadPcal(false)}}
 V.home=function(){
+  pcalAuto();
   var hr=new Date().getHours(), hi=hr<6?"Goedenacht":hr<12?"Goedemorgen":hr<18?"Goedemiddag":"Goedenavond";
   var dt=new Date().toLocaleDateString("nl-NL",{weekday:"long",day:"numeric",month:"long"});dt=dt.charAt(0).toUpperCase()+dt.slice(1);
-  var open=S.tasks.filter(function(t){return !t.done}), mine=open.filter(function(t){return t.who===me||t.who==="Samen"});
-  var shop=S.shop.filter(function(i){return !i.done}).length;
-  var spent=S.budget.filter(function(b){return b.date.slice(0,7)===month&&(!b.scope||b.scope==="joint")}).reduce(function(a,b){return a+b.amount},0);
-  var inleg=(S.bset.Collin||0)+(S.bset.Charlotte||0);
-  var t3=inleg>0?[eur(inleg-spent).replace(",00",""),"over deze maand"]:[eur(spent).replace(",00",""),"uitgegeven"];
+  var t0=today();
   var h='<div class="hero"><small>'+esc(dt)+'</small><h2>'+hi+', '+esc(me)+'</h2><div class="hs">'+USERS.map(esc).join(" &amp; ")+'</div></div>';
-  h+='<div class="card"><div class="big"><div><b>'+mine.length+'</b><small>taken voor jou</small></div><div><b>'+shop+'</b><small>boodschappen</small></div><div><b>'+t3[0]+'</b><small>'+t3[1]+'</small></div></div></div>';
-  h+='<div class="ppl">'+USERS.map(function(u){
-    var o=open.filter(function(t){return t.who===u}).sort(function(a,b){return (a.due||"9")<(b.due||"9")?-1:1});
-    return '<div class="pc'+(u===USERS[0]?'':' o')+'"><div class="av">'+esc(u.slice(0,2))+'</div><b>'+esc(u)+(u===me?' <span class="s">(jij)</span>':'')+'</b><div class="n">'+o.length+'</div><div class="s">open '+(o.length===1?'taak':'taken')+'</div><div class="s">'+(o[0]?esc(o[0].text):'niets open')+'</div></div>';
-  }).join("")+'</div>';
-  var shared=open.filter(function(t){return t.who==="Samen"}).length;
-  var rows=mine.slice(0,5).map(function(t){return line(esc(t.text),esc(t.who)+(t.due?" · "+nlDate(t.due):""),"","tasks")});
-  S.agenda.filter(function(e){var d=daysTo(e.date);return d>=0&&d<=14}).sort(function(a,b){return (a.date+(a.time||""))<(b.date+(b.time||""))?-1:1}).slice(0,4).forEach(function(e){rows.push(line(esc(e.text),nlDate(e.date)+(e.time?" "+esc(e.time):"")+" · "+esc(e.who),"","cal"))});
+  if(role==="admin"&&reqCount>0)h+='<button class="mrow" data-tab="set" style="margin-top:12px"><span class="ico">'+ic("gear",18)+'</span><span>'+reqCount+(reqCount===1?" aanvraag wacht":" aanvragen wachten")+' op goedkeuring</span><span class="c">'+ic("chev",18)+'</span></button>';
+  var ev=[];
+  S.agenda.filter(function(e){return e.date===t0}).forEach(function(e){ev.push({t:e.time||"",x:e.text,s:e.who||"Huis"})});
+  (pcal||[]).forEach(function(e){if(iso(new Date(e.startDate))===t0){var tm=e.isAllDay?"":new Date(e.startDate).toLocaleTimeString("nl-NL",{hour:"2-digit",minute:"2-digit"});ev.push({t:tm,x:e.title||"(geen titel)",s:"Agenda"})}});
+  ev.sort(function(a,b){return (a.t||"0")<(b.t||"0")?-1:1});
+  h+='<div class="card"><div class="bar"><h2 style="margin:0">Vandaag</h2><button class="btn ghost" data-tab="agenda" style="padding:5px 10px;font-size:13px">Agenda</button></div>'+(ev.length?ev.map(function(e){return '<div class="row"><span class="ico">'+ic("cal",18)+'</span><div class="t"><b>'+esc(e.x)+'</b><span class="tag">'+esc(e.s)+'</span><div class="s">'+(e.t?esc(e.t):"hele dag")+'</div></div></div>'}).join(""):'<div class="empty">Geen afspraken vandaag.</div>')+'</div>';
+  var mine=S.tasks.filter(function(t){return !t.done&&(t.who===me||t.who==="Samen")}).sort(function(a,b){return (a.due||"9")<(b.due||"9")?-1:1});
+  h+='<div class="card"><div class="bar"><h2 style="margin:0">Taken</h2><button class="btn ghost" data-tab="tasks" style="padding:5px 10px;font-size:13px">Alle taken</button></div>'+(mine.length?mine.slice(0,6).map(function(t){var d=t.due?daysTo(t.due):null;return '<div class="row"><button class="chk" data-a="tdone" data-id="'+t.id+'"></button><div class="t"><b>'+esc(t.text)+'</b>'+(t.who==="Samen"?'<span class="tag">Samen</span>':'')+(t.due?'<div class="s '+(d<0?'over':d===0?'soon':'')+'">'+(d<0?'te laat · ':d===0?'vandaag · ':'')+nlDate(t.due)+'</div>':'')+'</div></div>'}).join("")+(mine.length>6?'<div class="s" style="color:var(--mut);padding-top:6px">+ '+(mine.length-6)+' meer</div>':''):'<div class="empty">Geen open taken. Fijne dag!</div>')+'</div>';
+  var tm=S.meals[todayKey()], tmr=S.meals[keyFor(addDays(t0,1))];
+  h+='<div class="card"><h2>Eten</h2><div class="row"><div class="t"><b>'+(tm?esc(tm):'Nog niets gepland')+'</b><div class="s">Vandaag</div></div></div>'+(tmr?'<div class="row"><div class="t"><b>'+esc(tmr)+'</b><div class="s">Morgen</div></div></div>':'')+'</div>';
+  var rows=[];
+  S.agenda.filter(function(e){var d=daysTo(e.date);return d>=1&&d<=14}).sort(function(a,b){return (a.date+(a.time||""))<(b.date+(b.time||""))?-1:1}).slice(0,4).forEach(function(e){rows.push(line(esc(e.text),nlDate(e.date)+(e.time?" "+esc(e.time):"")+" · "+esc(e.who),"","cal"))});
   S.maint.filter(function(m){return daysTo(nextDue(m))<=14}).sort(function(a,b){return nextDue(a)<nextDue(b)?-1:1}).slice(0,5).forEach(function(m){var d=daysTo(nextDue(m));rows.push(line(esc(m.name),d<0?"te laat ("+(-d)+" dgn)":d===0?"vandaag":"over "+d+" dgn",d<0?"over":"soon",m.cat==="zwembad"?"pool":"wrench"))});
   S.docs.filter(function(d){return d.end&&daysTo(d.end)<=45}).forEach(function(d){var n=daysTo(d.end);rows.push(line(esc(d.name),n<0?"verlopen":"loopt af over "+n+" dgn",n<0?"over":"soon","doc"))});
-  h+='<div class="card"><h2>Binnenkort</h2>'+(rows.join("")||'<div class="empty">Niets dringends.</div>')+'</div>';
-  var tm=S.meals[todayKey()], tmr=S.meals[keyFor(addDays(today(),1))];
-  h+='<div class="card"><h2>Eten</h2><div class="row"><div class="t"><b>'+(tm?esc(tm):'Nog niets gepland')+'</b><div class="s">Vandaag</div></div></div>'+(tmr?'<div class="row"><div class="t"><b>'+esc(tmr)+'</b><div class="s">Morgen</div></div></div>':'')+'</div>';
-  h+='<div class="sync">'+(synced()?(syncErr?dot("a")+esc(syncErr):dot("g")+'Live gedeeld met '+esc(USERS.filter(function(u){return u!==me})[0])):dot()+'Alleen op dit apparaat. Delen via Meer → Delen &amp; back-up')+'</div>';
+  if(rows.length)h+='<div class="card"><h2>Binnenkort</h2>'+rows.join("")+'</div>';
+  h+='<div class="sync">'+(synced()?(syncErr?dot("a")+esc(syncErr):dot("g")+'Live gedeeld met '+esc(USERS.filter(function(u){return u!==me})[0])):dot()+'Alleen op dit apparaat.'+(role==="admin"||!authOn()?' Delen via Meer → Account &amp; beheer':''))+'</div>';
   return h;
 };
 V.tasks=function(){
@@ -263,7 +353,7 @@ function recView(){
 }
 V.shop=function(){return eseg()+(etab==="list"?listView():etab==="rec"?recView():menuView())};
 var CATS=["Vaste lasten","Boodschappen","Kind","Auto & vervoer","Overig"];
-var bsub="joint", imp=null;
+var bsub=null, imp=null;
 // ---- bankkoppeling (via bankbrug)
 var BANKNAME={abn:"ABN AMRO",ing:"ING"};
 var CAP=window.Capacitor, NATIVE=!!(CAP&&CAP.isNativePlatform&&CAP.isNativePlatform());
@@ -289,7 +379,7 @@ function addLinkFromCode(code){
     if(!BANKNAME[bk]||!d.acc||!d.acc.length)throw new Error("Bankcode niet herkend");
     var L=links().filter(function(l){return !(l.bankKey===bk&&l.scope===sc)});
     L.push({bankKey:bk,bank:BANKNAME[bk],scope:sc,acc:d.acc,until:d.until||"",last:""});
-    S.bank={links:L};save("bank");alert2("Gekoppeld: "+BANKNAME[bk]);
+    S.bank={links:L};bsub=sc;tab="budget";save("bank");alert2("Gekoppeld: "+BANKNAME[bk]);
   }catch(x){alert2("Bankcode ongeldig: "+x.message)}
 }
 function apiRows(txs){
@@ -304,16 +394,38 @@ function apiRows(txs){
 function bankCard(){
   var ok=!!(cfg.bankUrl&&cfg.bankToken), L=links();
   var h='<div class="card"><h2>Bankkoppeling</h2>';
-  if(!ok)return h+'<div class="empty">Nog niet ingesteld. Ga naar Meer → Delen &amp; back-up → Bankkoppeling.</div></div>';
+  if(!ok)return h+'<div class="empty">'+(role==="admin"||!authOn()?'Nog niet ingesteld. Ga naar Meer → Account &amp; beheer → Bankkoppeling.':'De beheerder moet de bank nog instellen.')+'</div></div>';
   h+=L.map(function(l,i){
+    if(l.scope!==bsub)return '';
     var d=l.until?daysTo(l.until.slice(0,10)):null;
     return '<div class="row"><div class="t"><b>'+esc(l.bank)+'</b><span class="tag">'+(l.scope==="joint"?"Gezamenlijk":"Eigen "+esc(l.scope))+'</span><div class="s '+(d!==null&&d<0?'over':d!==null&&d<=7?'soon':'')+'">'+(l.acc||[]).map(function(a){return esc(ibanFmt(a.iban||a.name||""))}).join(", ")+(d!==null?' · '+(d<0?'verlopen, koppel opnieuw':'nog '+d+' dgn geldig'):'')+'</div></div><button class="btn ghost" data-a="bfetch" data-i="'+i+'">Ophalen</button><button class="x" data-a="bunlink" data-i="'+i+'">×</button></div>';
   }).join("");
-  h+='<form class="add" data-f="blink" style="margin-top:8px"><select name="bank"><option value="abn">ABN AMRO</option><option value="ing">ING</option></select><select name="scope"><option value="joint"'+(bsub==="joint"?" selected":"")+'>Gezamenlijk</option><option value="Collin"'+(bsub==="Collin"?" selected":"")+'>Eigen Collin</option><option value="Charlotte"'+(bsub==="Charlotte"?" selected":"")+'>Eigen Charlotte</option></select><button class="btn">Koppelen</button></form>';
+  h+='<form class="add" data-f="blink" style="margin-top:8px"><select name="bank"><option value="abn">ABN AMRO</option><option value="ing">ING</option></select><input type="hidden" name="scope" value="'+esc(bsub)+'"><button class="btn">Koppelen</button></form>';
   h+='<div class="add" style="margin:0"><input type="text" id="bcode" placeholder="Bankcode plakken (Android-app)" style="flex:1 1 150px"><button class="btn ghost" data-a="bpaste">Opslaan</button></div>';
   return h+'</div>';
 }
 
+function accStr(scope){var a=S.bacc&&S.bacc[scope];return typeof a==="string"?a.split(","):null}
+function canSee(scope,u){if(scope!=="joint"&&scope===u)return true;var a=accStr(scope);if(a)return a.indexOf(u)>-1;return scope==="joint"}
+function scopeName(sc){return sc==="joint"?"Gezamenlijk":(sc===me?"Eigen":"Eigen "+sc)}
+function budgetHome(){
+  var partner=USERS.filter(function(u){return u!==me})[0];
+  var scopes=["joint",me,partner].filter(function(s){return s&&canSee(s,me)});
+  var h='<p style="color:var(--mut);font-size:14px;margin:14px 2px 8px">Kies welk budget je wilt openen.</p>';
+  scopes.forEach(function(s){
+    var sp=S.budget.filter(function(b){return b.date.slice(0,7)===month&&(s==="joint"?(!b.scope||b.scope==="joint"):b.scope===s)}).reduce(function(a,b){return a+b.amount},0);
+    var n=links().filter(function(l){return l.scope===s}).length;
+    h+='<button class="mrow" data-a="bsub" data-k="'+s+'" style="padding:18px 14px"><span class="ico">'+ic(s==="joint"?"home":"wallet",20)+'</span><span><b style="display:block;font-size:17px">'+esc(scopeName(s))+'</b><small style="display:block;font-weight:400;color:var(--mut);font-size:13px">'+eur(sp)+' deze maand · '+(n?n+' bank'+(n===1?'':'en')+' gekoppeld':'geen bank gekoppeld')+'</small></span><span class="c">'+ic("chev",18)+'</span></button>';
+  });
+  return h;
+}
+function accCard(){
+  var edit=(bsub==="joint"||bsub===me);
+  return '<div class="card"><h2>Wie mag dit zien</h2>'+USERS.map(function(u){
+    var on=canSee(bsub,u), own=(bsub!=="joint"&&u===bsub), lock=own||!edit;
+    return '<div class="row"><button class="chk" '+(lock?'disabled':'data-a="bacc" data-k="'+esc(u)+'"')+' style="'+(on?'background:var(--acc);':'')+(lock?'opacity:.55':'')+'">'+(on?'✓':'')+'</button><div class="t"><b>'+esc(u)+'</b>'+(own?'<span class="tag">eigenaar</span>':'')+'</div></div>';
+  }).join("")+(edit?'':'<p class="s" style="font-size:12px;color:var(--mut);margin:6px 0 0">Alleen de eigenaar kan dit aanpassen.</p>')+'<p class="s" style="font-size:12px;color:var(--mut);margin:6px 0 0">Dit bepaalt wie het budget in de app ziet. Het is geen kluis: de gegevens staan wel in jullie gedeelde database.</p></div>';
+}
 function inScope(b){return bsub==="joint"?(!b.scope||b.scope==="joint"):b.scope===bsub}
 // ---- CSV van de bank
 function parseCSV(t){
@@ -379,11 +491,12 @@ function impCard(){
    +'<div class="add"><button class="btn" data-a="idone">Importeer '+n+' uitgaven</button></div></div>';
 }
 V.budget=function(){
+  if(!bsub||!canSee(bsub,me))return budgetHome();
   var joint=bsub==="joint";
   var list=S.budget.filter(function(b){return b.date.slice(0,7)===month&&inScope(b)}).sort(function(a,b){return a.date<b.date?1:-1});
   var spent=list.reduce(function(a,b){return a+b.amount},0), inleg=(S.bset.Collin||0)+(S.bset.Charlotte||0);
   var adv={};USERS.forEach(function(u){adv[u]=list.filter(function(b){return b.who===u}).reduce(function(a,b){return a+b.amount},0)});
-  var h='<div class="add" style="margin:8px 0 0">'+[["joint","Gezamenlijk"],["Collin","Eigen Collin"],["Charlotte","Eigen Charlotte"]].map(function(s){return '<button class="btn '+(bsub===s[0]?'':'ghost')+'" data-a="bsub" data-k="'+s[0]+'" style="flex:1;padding:8px 4px;font-size:13px">'+s[1]+'</button>'}).join("")+'</div>';
+  var h='<div class="bar" style="margin:8px 0 0"><button class="btn ghost" data-a="bback">← Budget</button><h2 style="margin:0">'+esc(scopeName(bsub))+'</h2></div>';
   h+='<form class="add" data-f="bud"><input type="text" name="text" placeholder="Wat?" required><input type="number" name="amount" step="0.01" min="0" placeholder="€" style="width:90px" required>'+(joint?'<select name="who">'+userOpts(["Gezamenlijk"],"Gezamenlijk")+'</select>':'')+'<select name="cat">'+CATS.map(function(c){return "<option>"+c+"</option>"}).join("")+'</select><button class="btn">+</button></form>';
   h+='<div class="card"><div class="bar"><h2 style="margin:0">Maand</h2><input type="month" id="mon" value="'+month+'"></div>';
   if(joint){
@@ -393,7 +506,7 @@ V.budget=function(){
   h+='</div>';
   if(joint)h+='<div class="card"><h2>Vaste inleg per maand</h2><div class="add" style="margin:0">'+USERS.map(function(u){return '<label style="flex:1;font-size:13px;color:var(--mut)">'+u+'<input type="number" min="0" step="1" data-bset="'+u+'" value="'+(S.bset[u]||"")+'" placeholder="€" style="width:100%"></label>'}).join("")+'</div></div>';
   if(joint){var ib=S.bset.iban||"";h+='<div class="card"><h2>Gezamenlijke rekening</h2>'+(ib?'<div class="bar"><b style="font-size:17px;letter-spacing:.5px">'+esc(ibanFmt(ib))+'</b><button class="btn ghost" data-a="copyiban" style="padding:6px 10px">Kopieer</button></div><div class="s '+(ibanOk(ib)?'':'over')+'">'+(ibanOk(ib)?esc(S.bset.ibanNaam||"")+' · ✓ geldig rekeningnummer':'Dit rekeningnummer lijkt niet te kloppen')+'</div>':'<div class="empty">Nog niet ingevuld.</div>')+'<div class="add" style="margin:10px 0 0"><input type="text" data-iban="nr" value="'+esc(ib)+'" placeholder="IBAN (NL00 BANK 0000 0000 00)" style="flex:1 1 100%"><input type="text" data-iban="naam" value="'+esc(S.bset.ibanNaam||"")+'" placeholder="Op naam van (bijv. Charlotte)" style="flex:1 1 100%"></div><p class="s" style="font-size:12px;color:var(--mut);margin:6px 0 0">Jullie beiden zien dit rekeningnummer hier, zodat de maandelijkse inleg naar dezelfde rekening gaat.</p></div>'}
-  h+=bankCard();
+  h+=bankCard();h+=accCard();
   h+=impCard();
   h+='<div class="card">'+(list.length?list.map(function(b){return '<div class="row"><div class="t"><b>'+esc(b.text)+'</b><span class="tag">'+esc(b.cat)+'</span><div class="s">'+nlDate(b.date)+(joint?' · '+(b.who==="Gezamenlijk"?"gezamenlijke rekening":"betaald door "+esc(b.who)):'')+'</div></div><b>'+eur(b.amount)+'</b><button class="x" data-a="bdel" data-id="'+b.id+'">×</button></div>'}).join(""):'<div class="empty">Geen uitgaven deze maand.</div>')+'</div>';
   var cats={};list.forEach(function(b){cats[b.cat]=(cats[b.cat]||0)+b.amount});
@@ -451,16 +564,29 @@ V.docs=function(){
 };
 V.more=function(){
   function b(t,i,s){return '<button class="mrow" data-tab="'+t+'"><span class="ico">'+ic(i,18)+'</span><span>'+s+'</span><span class="c">'+ic("chev",18)+'</span></button>'}
-  return '<div style="margin-top:12px">'+b("maint","wrench","Onderhoud huis")+b("pool","pool","Zwembad")+b("agenda","cal","Agenda")+b("docs","doc","Documenten &amp; contracten")+b("set","gear","Delen &amp; back-up")+'</div>';
+  return '<div style="margin-top:12px">'+b("maint","wrench","Onderhoud huis")+b("pool","pool","Zwembad")+b("agenda","cal","Agenda")+b("docs","doc","Documenten &amp; contracten")+b("set","gear","Account &amp; beheer"+(role==="admin"&&reqCount?' <span class="tag">'+reqCount+'</span>':""))+'</div>';
 };
 V.set=function(){
-  var link=synced()?location.origin+location.pathname+"#sync="+encodeURIComponent(btoa(cfg.url+"|"+cfg.code+"|"+(cfg.bankUrl||"")+"|"+(cfg.bankToken||"")+"|"+(cfg.apiKey||""))):"";
-  return '<div class="card"><h2>Delen met Charlotte</h2><p style="font-size:14px;margin:0 0 8px">Plak hier de <b>databaseURL</b> van je Firebase Realtime Database en kies een koppelcode. Daarna stuur je Charlotte de deellink; zij hoeft niets in te vullen.</p>'
-  +'<form class="add" data-f="cfg"><input type="text" name="url" value="'+esc(cfg.url)+'" placeholder="https://jouwproject-default-rtdb.europe-west1.firebasedatabase.app" style="flex:1 1 100%"><input type="text" name="code" value="'+esc(cfg.code)+'" placeholder="koppelcode"><button type="button" class="btn ghost" data-a="newcode">Nieuwe code</button><input type="text" name="apiKey" value="'+esc(cfg.apiKey||"")+'" placeholder="Firebase Web API-sleutel (voor inloggen)" style="flex:1 1 100%"><button class="btn">Opslaan</button></form>'+(authOn()&&auth?'<p style="font-size:13px;margin:8px 0">Ingelogd als <b>'+esc(auth.email)+'</b> ('+esc(me)+')</p><button class="btn ghost" data-a="logout">Uitloggen</button>':'')
-  +(syncErr?'<p class="over" style="font-size:13px">'+esc(syncErr)+'</p>':'')
-  +(link?'<h2 style="margin-top:12px">Deellink</h2><input type="text" readonly value="'+esc(link)+'" style="width:100%;font-size:12px" onclick="this.select()"><p class="s" style="font-size:12px;color:var(--mut)">Houd deze link privé: wie hem heeft, ziet jullie lijsten.</p>':'')
-  +'</div><div class="card"><h2>Bankkoppeling</h2><p style="font-size:14px;margin:0 0 8px">Het adres en wachtwoord van je bankbrug (zie de installatiestappen).</p><form class="add" data-f="bcfg"><input type="text" name="bankUrl" value="'+esc(cfg.bankUrl||"")+'" placeholder="https://huis-bank.jouwnaam.workers.dev" style="flex:1 1 100%"><input type="text" name="bankToken" value="'+esc(cfg.bankToken||"")+'" placeholder="wachtwoord van de bankbrug" style="flex:1 1 100%"><button class="btn">Opslaan</button><button type="button" class="btn ghost" data-a="btest">Testen</button></form></div><div class="card"><h2>Back-up</h2><div class="add"><button class="btn ghost" data-a="exp">Exporteren</button><label class="btn ghost" style="cursor:pointer">Importeren<input type="file" id="imp" accept=".json" hidden></label></div></div>'
-  +'<button class="btn ghost" data-tab="home">← Terug</button>';
+  var h='';
+  if(authOn()&&role==="admin"&&!admData&&!admLoading)loadAdm();
+  h+='<div class="card"><h2>Account</h2>';
+  if(authOn()&&auth){h+='<div class="row"><div class="t"><b>'+esc(auth.email)+'</b><span class="tag">'+(role==="admin"?"beheerder":"lid")+'</span><div class="s">Je bent '+esc(me)+'</div></div></div><div class="add" style="margin:8px 0 0"><button class="btn ghost" data-a="logout">Uitloggen</button></div>'}
+  else h+='<p style="font-size:14px;margin:0">Je gebruikt de app nu zonder account.</p>';
+  h+=(syncErr?'<p class="over" style="font-size:13px;margin:8px 0 0">'+esc(syncErr)+'</p>':'')+'</div>';
+  if(!authOn()){
+    h+='<div class="card"><h2>Delen met Charlotte</h2><p style="font-size:14px;margin:0 0 8px">Wil je inloggen en delen? Ga uit naar het startscherm met de knop hieronder en kies daar Inloggen, Aanmelden of de beheerder-instelling.</p><button class="btn" data-a="resetconn">Naar het startscherm</button></div>';
+  }
+  if(authOn()&&role==="admin"){
+    var d=admData||{req:{},mem:{},adm:{}}, rq=Object.keys(d.req), mm=Object.keys(d.mem);
+    if(d.err)h+='<p class="over" style="font-size:13px">'+esc(d.err)+'</p>';
+    h+='<div class="card"><h2>Aanvragen'+(rq.length?' ('+rq.length+')':'')+'</h2>'+(rq.length?rq.map(function(u){var r=d.req[u]||{};return '<div class="row"><div class="t"><b>'+esc(r.who||"?")+'</b><div class="s">'+esc(r.email||"")+'</div></div><button class="btn" data-a="approve" data-id="'+esc(u)+'" style="padding:6px 10px">Goedkeuren</button><button class="x" data-a="reject" data-id="'+esc(u)+'">×</button></div>'}).join(""):'<div class="empty">Geen aanvragen.</div>')+'</div>';
+    h+='<div class="card"><h2>Leden</h2>'+(mm.length?mm.map(function(u){var m=d.mem[u]||{};return '<div class="row"><div class="t"><b>'+esc(m.who||"?")+'</b>'+(d.adm[u]?'<span class="tag">beheerder</span>':'')+'<div class="s">'+esc(m.email||"")+'</div></div>'+(d.adm[u]?'':'<button class="x" data-a="rmember" data-id="'+esc(u)+'">×</button>')+'</div>'}).join(""):'<div class="empty">Laden…</div>')+'</div>';
+    h+='<div class="card"><h2>Uitnodigen</h2><p style="font-size:14px;margin:0 0 8px">Stuur deze link naar Charlotte. Zij installeert de app, opent de link en meldt zich aan met het formulier. Daarna keur jij haar hier goed. Bank en agenda staan dan voor haar meteen goed.</p><input type="text" readonly value="'+esc(inviteLink())+'" style="width:100%;font-size:12px" onclick="this.select()"><div class="add" style="margin:8px 0 0"><button class="btn" data-a="copyinv">Link kopiëren</button></div></div>';
+    h+='<div class="card"><h2>Bankkoppeling (voor iedereen)</h2><p style="font-size:14px;margin:0 0 8px">Vul dit één keer in. Het wordt automatisch gedeeld met alle goedgekeurde leden.</p><form class="add" data-f="bcfg"><input type="text" name="bankUrl" value="'+esc(cfg.bankUrl||"")+'" placeholder="https://huis.jouwnaam.workers.dev" style="flex:1 1 100%"><input type="text" name="bankToken" value="'+esc(cfg.bankToken||"")+'" placeholder="wachtwoord van de bankbrug" style="flex:1 1 100%"><button class="btn">Opslaan</button><button type="button" class="btn ghost" data-a="btest">Testen</button></form></div>';
+    h+='<div class="card"><h2>Firebase-regels</h2><p style="font-size:14px;margin:0 0 8px">Nodig voor de beveiliging. Plakken in Firebase → Realtime Database → Regels → Publiceren.</p><button class="btn ghost" data-a="copyrules">Regels kopiëren</button></div>';
+  }
+  h+='<div class="card"><h2>Back-up</h2><div class="add"><button class="btn ghost" data-a="exp">Exporteren</button><label class="btn ghost" style="cursor:pointer">Importeren<input type="file" id="imp" accept=".json" hidden></label></div></div>';
+  return h+'<button class="btn ghost" data-tab="home">← Terug</button>';
 };
 var TABS=[["home","home","Overzicht"],["tasks","tasks","Taken"],["shop","cart","Eten"],["budget","wallet","Budget"],["more","more","Meer"]], SUB={maint:1,pool:1,agenda:1,docs:1,set:1};
 function render(force){
@@ -476,7 +602,7 @@ function render(force){
 function byId(k,id){return S[k].filter(function(x){return x.id===id})[0]}
 document.addEventListener("click",function(e){
   var t=e.target.closest("[data-tab],[data-a]"); if(!t) return;
-  if(t.dataset.tab){tab=t.dataset.tab;render(true);window.scrollTo(0,0);return}
+  if(t.dataset.tab){tab=t.dataset.tab;render(true);window.scrollTo(0,0);if(tab==="set"&&role==="admin")loadAdm();return}
   var a=t.dataset.a,id=t.dataset.id,o;
   if(a==="tdone"){o=byId("tasks",id);o.done=!o.done;
     if(o.done&&o.rep){S.tasks.push({id:uid(),text:o.text,who:o.who,rep:o.rep,due:addDays(o.due||today(),+o.rep),done:false})}
@@ -523,7 +649,15 @@ document.addEventListener("click",function(e){
   else if(a==="icancel"){imp=null;render(true)}
   else if(a==="idone"){var last="";imp.rows.forEach(function(x){if(!x.on)return;S.budget.push({id:uid(),text:x.text,amount:x.amount,who:bsub==="joint"?"Gezamenlijk":bsub,scope:bsub,cat:x.cat,date:x.date,ref:x.ref});if(x.date>last)last=x.date});if(last)month=last.slice(0,7);var li=imp.linkIdx;imp=null;if(li!==undefined&&links()[li]){var L3=links().slice();L3[li]=Object.assign({},L3[li],{last:addDays(today(),-3)});S.bank={links:L3};save("bank")}save("budget");render(true)}
   else if(a==="bdel"){S.budget=S.budget.filter(function(x){return x.id!==id});save("budget")}
-  else if(a==="logout"){auth=null;ls("huis-auth",null);location.reload()}
+  else if(a==="logout"){auth=null;ls("huis-auth",null);ls("huis-role","");location.reload()}
+  else if(a==="bback"){bsub=null;imp=null;render(true);window.scrollTo(0,0)}
+  else if(a==="bacc"){var sc=bsub,cur=USERS.filter(function(u){return canSee(sc,u)}),u2=t.dataset.k;cur=cur.indexOf(u2)>-1?cur.filter(function(x){return x!==u2}):cur.concat(u2);if(sc!=="joint"&&cur.indexOf(sc)<0)cur.push(sc);if(!S.bacc||Array.isArray(S.bacc))S.bacc={};S.bacc[sc]=cur.join(",")||"-";save("bacc")}
+  else if(a==="copyinv"){copyTxt(inviteLink(),"Uitnodiging gekopieerd")}
+  else if(a==="copyrules"){copyTxt(RULES_TXT,"Regels gekopieerd")}
+  else if(a==="resetconn"){ls("huis-cfg",null);ls("huis-local",null);location.reload()}
+  else if(a==="approve"){var rq=admData&&admData.req[id];if(rq)dbReq("members/"+id,"PUT",{who:rq.who||"Collin",email:rq.email||"",at:Date.now()}).then(function(){return dbReq("requests/"+id,"DELETE")}).then(function(){admData=null;loadAdm();alert2("Goedgekeurd")}).catch(function(x){alert2("Mislukt: "+x.message)})}
+  else if(a==="reject"){dbReq("requests/"+id,"DELETE").then(function(){admData=null;loadAdm()}).catch(function(x){alert2("Mislukt: "+x.message)})}
+  else if(a==="rmember"){dbReq("members/"+id,"DELETE").then(function(){admData=null;loadAdm()}).catch(function(x){alert2("Mislukt: "+x.message)})}
   else if(a==="newcode"){var f=t.closest("form");f.elements.code.value=Array.from(crypto.getRandomValues(new Uint8Array(10))).map(function(b){return "abcdefghjkmnpqrstuvwxyz23456789"[b%31]}).join("")}
   else if(a==="exp"){var bl=new Blob([JSON.stringify(S)],{type:"application/json"}),an=document.createElement("a");an.href=URL.createObjectURL(bl);an.download="huis-backup-"+today()+".json";an.click()}
   else if(a==="pdel"){S.pool=S.pool.filter(function(x){return x.id!==id});save("pool")}
@@ -544,7 +678,7 @@ document.addEventListener("submit",function(e){
   if(k==="task"){S.tasks.push({id:uid(),text:d.get("text"),who:d.get("who"),rep:d.get("rep"),due:d.get("due")||"",done:false});save("tasks")}
   if(k==="shop"){S.shop.push({id:uid(),text:d.get("text"),done:false});save("shop")}
   if(k==="bud"){S.budget.push({id:uid(),text:d.get("text"),amount:parseFloat(d.get("amount"))||0,who:d.get("who")||bsub,scope:bsub,cat:d.get("cat"),date:month===today().slice(0,7)?today():month+"-01"});save("budget")}
-  if(k==="bcfg"){cfg.bankUrl=(d.get("bankUrl")||"").trim().replace(/\/+$/,"");cfg.bankToken=(d.get("bankToken")||"").trim();ls("huis-cfg",cfg);alert2("Opgeslagen");render(true);return}
+  if(k==="bcfg"){cfg.bankUrl=(d.get("bankUrl")||"").trim().replace(/\/+$/,"");cfg.bankToken=(d.get("bankToken")||"").trim();ls("huis-cfg",cfg);pushCfg();alert2("Opgeslagen");render(true);return}
   if(k==="recipe"){var rid=d.get("id"),rn=(d.get("text")||"").trim(),ri=d.get("ing")||"";if(rn){if(rid){var re=S.recipes.filter(function(r){return r.id===rid})[0];if(re){re.name=rn;re.ing=ri}}else S.recipes.push({id:uid(),name:rn,ing:ri})}redit=null;save("recipes");return}
   if(k==="blink"){alert2("Bank openen…");bfetchJSON("/auth",{method:"POST",body:JSON.stringify({bank:d.get("bank"),scope:d.get("scope")})}).then(function(j){openExternal(j.url)}).catch(function(x){alert2("Koppelen mislukt: "+x.message)});return}
   if(k==="cfg"){cfg=Object.assign({},cfg,{url:(d.get("url")||"").trim(),code:(d.get("code")||"").trim(),apiKey:(d.get("apiKey")||"").trim()});ls("huis-cfg",cfg);meta={};ls("huis-at",meta);location.reload();return}

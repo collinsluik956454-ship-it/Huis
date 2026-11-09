@@ -32,7 +32,7 @@ Ga naar je worker → **Settings → Variables and Secrets** en voeg toe (type *
 Kies daarna **Deploy**.
 
 ## Deel 4: in de Huis-app
-1. Ga naar **Meer → Delen & back-up → Bankkoppeling**. Vul het worker-adres en het wachtwoord (`HUIS_TOKEN`) in. Kies **Opslaan** en dan **Testen**.
+1. Ga naar **Meer → Account & beheer → Bankkoppeling** (alleen de beheerder; Charlotte krijgt dit automatisch). Vul het worker-adres en het wachtwoord (`HUIS_TOKEN`) in. Kies **Opslaan** en dan **Testen**.
 2. Ga naar **Budget → Bankkoppeling**, kies de bank en bij welk kopje het hoort (Gezamenlijk, Eigen Collin of Eigen Charlotte) en kies **Koppelen**.
 3. Bevestig in je bank-app. Je komt op een pagina "Gekoppeld ✓".
    - In de browser kies je **Open Huis-app**.
@@ -47,15 +47,13 @@ Kies daarna **Deploy**.
 
 ---
 
-## Inloggen met e-mail (Firebase Authentication)
+## Account, beheerder en aanmelden (Firebase)
 
-1. Firebase-console → jouw project → **Authentication** → *Aan de slag* → tabblad *Aanmeldmethode* → zet **E-mail/wachtwoord** aan.
-2. Tabblad *Gebruikers* → **Gebruiker toevoegen**: maak één account voor Collin en één voor Charlotte (e-mail + wachtwoord).
-3. Tabblad *Instellingen* → *Gebruikersacties* → zet **Aanmaken (aanmelden)** uit. Dan kan niemand anders zichzelf een account geven.
-4. **Realtime Database** → tabblad *Regels* → plak dit en publiceer:
+Eenmalig door Collin (de eerste gebruiker wordt beheerder):
 
-   ```
-   { "rules": { "huis": { ".read": "auth != null", ".write": "auth != null" } } }
-   ```
-5. **Projectinstellingen** (tandwiel) → *Algemeen* → kopieer de **Web API-sleutel**.
-6. In de app: Meer → Delen & back-up → plak de sleutel in het veld *Firebase Web API-sleutel* → Opslaan. Stuur daarna de nieuwe deellink naar Charlotte; zij logt in met haar eigen e-mailadres.
+1. Firebase-console → **Authentication** → *Aan de slag* → *Aanmeldmethode* → zet **E-mail/wachtwoord** aan. Onder *Instellingen → Gebruikersacties* moet **Aanmaken (aanmelden)** AAN staan.
+2. **Projectinstellingen** (tandwiel) → *Algemeen* → kopieer de **Web API-sleutel**. Bij **Realtime Database** kopieer je de databaseURL.
+3. Open de app → kies **Ik ben de beheerder** → plak databaseURL en Web API-sleutel → daarna **Aanmelden** met je gegevens → **Ik word beheerder**.
+4. Als de app het vraagt: in de app onder **Meer → Account & beheer → Regels kopiëren**, en in Firebase → Realtime Database → *Regels* plakken en **Publiceren**.
+5. Vul onder *Account & beheer* de bankbrug in (adres en wachtwoord). Alle goedgekeurde leden krijgen dit automatisch.
+6. Kopieer de **uitnodigingslink** en stuur die naar Charlotte. Zij meldt zich aan, jij keurt haar goed onder *Aanvragen*.
